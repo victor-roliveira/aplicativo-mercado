@@ -1,0 +1,16 @@
+{
+  "name": "@mercado/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain/models": "./src/domain/models.ts",
+    "./contracts/api": "./src/contracts/api.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
