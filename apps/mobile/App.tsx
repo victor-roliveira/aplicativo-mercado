@@ -6,7 +6,7 @@ import { AppProviders } from "./src/app-shell/AppProviders";
 export default function App() {
   return (
     <AppProviders>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <AppNavigator />
     </AppProviders>
   );

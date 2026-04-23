@@ -3,10 +3,12 @@ import type { AppRole, DeliveryMode, PaymentMethod, ProductSummary } from "@merc
 import {
   addProductToCart as addProductToRemoteCart,
   checkoutCart,
+  decrementCartItem as decrementRemoteCartItem,
   fetchCartItems,
   fetchOrders,
   fetchProducts,
   getCurrentProfile,
+  removeCartItem as removeRemoteCartItem,
   signInWithPassword,
   signOut as signOutRemote,
   signUpCustomer,
@@ -35,6 +37,8 @@ type AppState = {
   signUp: (form: AuthForm) => Promise<void>;
   signOut: () => Promise<void>;
   addToCart: (product: ProductSummary) => Promise<void>;
+  decrementCartItem: (productId: string) => Promise<void>;
+  removeCartItem: (productId: string) => Promise<void>;
   checkout: (deliveryMode: DeliveryMode, paymentMethod: PaymentMethod) => Promise<void>;
   clearFeedback: () => void;
 };
@@ -225,6 +229,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const cart = await addProductToRemoteCart(product);
       set({ cart, isLoading: false, statusMessage: "Produto adicionado ao carrinho." });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  decrementCartItem: async (productId) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const cart = await decrementRemoteCartItem(productId);
+      set({ cart, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  removeCartItem: async (productId) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const cart = await removeRemoteCartItem(productId);
+      set({ cart, isLoading: false, statusMessage: "Produto removido do carrinho." });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });
     }

@@ -27,18 +27,20 @@ type FeatherName = keyof typeof Feather.glyphMap;
 type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const palette = {
-  background: "#09140f",
-  backgroundSoft: "#122b0d",
-  card: "#101a17",
-  cardSoft: "#18231f",
-  border: "#21312c",
-  borderActive: "#66d61e",
-  text: "#f4f8ef",
-  muted: "#91a09a",
-  green: "#87ff21",
-  green2: "#20f345",
-  danger: "#ff565f",
-  warning: "#efb437",
+  background: "#140c0f",
+  backgroundSoft: "#341013",
+  card: "#1f1516",
+  cardSoft: "#2a1d1f",
+  border: "#3c2629",
+  borderActive: "#ff434d",
+  text: "#fff7f7",
+  muted: "#b8a7aa",
+  green: "#ff353f",
+  green2: "#ff4a5a",
+  danger: "#ff4147",
+  warning: "#f0a020",
+  success: "#22c55e",
+  onAccent: "#fff7f7",
 };
 
 const roleLabels: Record<AppRole, string> = {
@@ -59,7 +61,7 @@ const statusLabels: Record<OrderStatus, string> = {
 
 const statusTone: Partial<Record<OrderStatus, "success" | "warning" | "danger">> = {
   PROCESSING: "warning",
-  OUT_FOR_DELIVERY: "success",
+  OUT_FOR_DELIVERY: "danger",
   DELIVERED: "success",
   CANCELLED: "danger",
   STOCK_ISSUE: "danger",
@@ -102,7 +104,7 @@ function Logo() {
   return (
     <View style={styles.logoRow}>
       <View style={styles.logoMark}>
-        <MaterialCommunityIcons name="leaf" size={28} color={palette.background} />
+        <MaterialCommunityIcons name="leaf" size={28} color={palette.onAccent} />
       </View>
       <Text style={styles.logoText}>verdejá</Text>
     </View>
@@ -131,7 +133,7 @@ function PrimaryButton({
       labelStyle={styles.primaryButtonLabel}
       style={styles.primaryButton}
       buttonColor={palette.green}
-      textColor={palette.background}
+      textColor={palette.onAccent}
       onPress={onPress}
       icon={({ color, size }) => <Feather name={icon} color={color} size={size} />}
     >
@@ -443,7 +445,7 @@ function HomeScreen({
           <Text style={styles.promoTitle}>20% off em hortifruti</Text>
           <Text style={styles.promoSubtitle}>Use o código FRESCO20</Text>
         </View>
-        <MaterialCommunityIcons name="leaf-maple" size={78} color="rgba(9,20,15,0.16)" />
+        <MaterialCommunityIcons name="leaf-maple" size={78} color="rgba(136,24,32,0.18)" />
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryList}>
@@ -461,7 +463,7 @@ function HomeScreen({
               <MaterialCommunityIcons
                 name={iconName as keyof typeof MaterialCommunityIcons.glyphMap}
                 size={18}
-                color={selected ? palette.background : palette.muted}
+                color={selected ? palette.onAccent : palette.muted}
               />
               <Text style={[styles.categoryText, selected && styles.categoryTextActive]}>
                 {category}
@@ -491,9 +493,9 @@ function HomeScreen({
 
       {cart.length > 0 ? (
         <Pressable style={styles.floatingCart} onPress={onCart}>
-          <Feather name="shopping-bag" size={20} color={palette.background} />
+          <Feather name="shopping-bag" size={20} color={palette.onAccent} />
           <Text style={styles.floatingCartText}>{cart.length} item(ns) no carrinho</Text>
-          <Feather name="arrow-right" size={18} color={palette.background} />
+          <Feather name="arrow-right" size={18} color={palette.onAccent} />
         </Pressable>
       ) : null}
     </ScrollView>
@@ -543,7 +545,7 @@ function ProductCard({
             style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
             onPress={onAdd}
           >
-            <Feather name="plus" size={25} color={palette.background} />
+            <Feather name="plus" size={25} color={palette.onAccent} />
           </Pressable>
         </View>
       </Pressable>
@@ -555,6 +557,8 @@ function CartScreen({ onCheckout }: { onCheckout: () => void }) {
   const cart = useAppStore((state) => state.cart);
   const products = useAppStore((state) => state.products);
   const addToCart = useAppStore((state) => state.addToCart);
+  const decrementCartItem = useAppStore((state) => state.decrementCartItem);
+  const removeCartItem = useAppStore((state) => state.removeCartItem);
   const isLoading = useAppStore((state) => state.isLoading);
   const subtotal = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   const deliveryFee = cart.length > 0 ? 690 : 0;
@@ -576,20 +580,30 @@ function CartScreen({ onCheckout }: { onCheckout: () => void }) {
                 <Text style={styles.cartName}>{item.name}</Text>
                 <Text style={styles.cartPrice}>{formatCurrency(item.unitPrice)} / un</Text>
                 <View style={styles.quantityRow}>
-                  <Pressable style={styles.quantityButton}>
+                  <Pressable
+                    style={styles.quantityButton}
+                    disabled={isLoading}
+                    onPress={() => void decrementCartItem(item.productId)}
+                  >
                     <Feather name="minus" size={18} color={palette.muted} />
                   </Pressable>
                   <Text style={styles.quantityText}>{item.quantity}</Text>
                   <Pressable
                     style={styles.quantityButton}
-                    disabled={!product}
+                    disabled={!product || isLoading}
                     onPress={() => product && void addToCart(product)}
                   >
                     <Feather name="plus" size={18} color={palette.text} />
                   </Pressable>
                 </View>
               </View>
-              <Feather name="trash-2" size={20} color={palette.muted} />
+              <Pressable
+                style={styles.cartTrashButton}
+                disabled={isLoading}
+                onPress={() => void removeCartItem(item.productId)}
+              >
+                <Feather name="trash-2" size={20} color={palette.muted} />
+              </Pressable>
             </View>
           );
         })}
@@ -695,7 +709,7 @@ function ProductDetailScreen({
           loading={isLoading}
           disabled={isLoading || !product.isAvailable}
           buttonColor={palette.green}
-          textColor={palette.background}
+          textColor={palette.onAccent}
           style={styles.detailAddButton}
           contentStyle={styles.detailAddButtonContent}
           labelStyle={styles.primaryButtonLabel}
@@ -810,7 +824,7 @@ function CheckoutScreen({
           loading={isLoading}
           disabled={isLoading || cart.length === 0}
           buttonColor={palette.green}
-          textColor={palette.background}
+          textColor={palette.onAccent}
           style={styles.checkoutButton}
           contentStyle={styles.checkoutButtonContent}
           labelStyle={styles.primaryButtonLabel}
@@ -861,7 +875,7 @@ function PaymentOption({
   return (
     <Pressable style={[styles.paymentOption, selected && styles.paymentOptionActive]} onPress={onPress}>
       <View style={[styles.paymentIcon, selected && styles.paymentIconActive]}>
-        <MaterialCommunityIcons name={icon} size={24} color={selected ? palette.background : palette.muted} />
+        <MaterialCommunityIcons name={icon} size={24} color={selected ? palette.onAccent : palette.muted} />
       </View>
       <View style={styles.flex}>
         <Text style={styles.paymentTitle}>{title}</Text>
@@ -999,7 +1013,7 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
           <Text style={styles.profileEmail}>★ 4.9 · Entregador</Text>
         </View>
         <Pressable style={styles.contactButton}>
-          <Feather name="phone" size={20} color={palette.background} />
+        <Feather name="phone" size={20} color={palette.onAccent} />
         </Pressable>
         <Pressable style={styles.chatButton}>
           <Feather name="message-circle" size={20} color={palette.text} />
@@ -1033,7 +1047,7 @@ function TimelineItem({
   return (
     <View style={styles.timelineItem}>
       <View style={[styles.timelineIcon, done && styles.timelineIconDone, active && styles.timelineIconActive]}>
-        <Feather name={icon} size={20} color={done ? palette.background : palette.muted} />
+        <Feather name={icon} size={20} color={done ? palette.onAccent : palette.muted} />
       </View>
       <View>
         <Text style={[styles.timelineLabel, !done && styles.timelineLabelMuted]}>{label}</Text>
@@ -1203,29 +1217,25 @@ const styles = StyleSheet.create({
   logoText: {
     color: palette.text,
     fontSize: 27,
-    fontWeight: "900",
     letterSpacing: -1,
   },
   loginLink: {
     color: palette.muted,
     fontSize: 16,
-    fontWeight: "700",
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(135,255,33,0.12)",
-    borderColor: "rgba(135,255,33,0.28)",
+    backgroundColor: "rgba(255,53,63,0.12)",
+    borderColor: "rgba(255,53,63,0.26)",
     borderWidth: 1,
     marginTop: 4,
   },
   badgeText: {
     color: palette.green,
-    fontWeight: "900",
   },
   heroTitle: {
     color: palette.text,
     fontSize: 56,
-    fontWeight: "900",
     letterSpacing: -2.4,
     lineHeight: 68,
     marginTop: 28,
@@ -1236,7 +1246,6 @@ const styles = StyleSheet.create({
   heroSubtitle: {
     color: palette.muted,
     fontSize: 22,
-    fontWeight: "700",
     lineHeight: 34,
     marginTop: 24,
   },
@@ -1246,7 +1255,7 @@ const styles = StyleSheet.create({
   },
   featureCard: {
     alignItems: "center",
-    backgroundColor: "rgba(9,20,15,0.72)",
+    backgroundColor: "rgba(26,15,16,0.84)",
     borderColor: palette.border,
     borderRadius: 18,
     borderWidth: 1,
@@ -1259,7 +1268,6 @@ const styles = StyleSheet.create({
     color: palette.text,
     flex: 1,
     fontSize: 17,
-    fontWeight: "800",
   },
   publicActions: {
     gap: 16,
@@ -1273,9 +1281,8 @@ const styles = StyleSheet.create({
     height: 58,
   },
   primaryButtonLabel: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 17,
-    fontWeight: "900",
   },
   secondaryButton: {
     borderRadius: 13,
@@ -1292,7 +1299,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignItems: "center",
-    backgroundColor: "rgba(16,26,23,0.64)",
+    backgroundColor: "rgba(31,21,22,0.84)",
     borderRadius: 24,
     height: 48,
     justifyContent: "center",
@@ -1302,14 +1309,12 @@ const styles = StyleSheet.create({
   authTitle: {
     color: palette.text,
     fontSize: 42,
-    fontWeight: "900",
     letterSpacing: -1.7,
     marginTop: 22,
   },
   authSubtitle: {
     color: palette.muted,
     fontSize: 20,
-    fontWeight: "700",
     marginTop: 12,
   },
   authForm: {
@@ -1323,16 +1328,14 @@ const styles = StyleSheet.create({
   inputLabel: {
     color: palette.text,
     fontSize: 16,
-    fontWeight: "900",
   },
   textInput: {
-    backgroundColor: "#08100d",
+    backgroundColor: palette.card,
     minHeight: 58,
   },
   inputHint: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "700",
     marginTop: -10,
   },
   forgotPassword: {
@@ -1340,7 +1343,6 @@ const styles = StyleSheet.create({
   },
   greenText: {
     color: palette.green,
-    fontWeight: "900",
   },
   demoRoles: {
     flexDirection: "row",
@@ -1356,12 +1358,10 @@ const styles = StyleSheet.create({
   },
   demoRoleText: {
     color: palette.text,
-    fontWeight: "900",
   },
   demoText: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "700",
     marginTop: 18,
     textAlign: "center",
   },
@@ -1372,7 +1372,6 @@ const styles = StyleSheet.create({
   authSwitchText: {
     color: palette.muted,
     fontSize: 16,
-    fontWeight: "800",
   },
   feedbackWrap: {
     paddingHorizontal: 20,
@@ -1383,14 +1382,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   feedbackError: {
-    backgroundColor: "#3a1618",
+    backgroundColor: "#44181d",
   },
   feedbackSuccess: {
-    backgroundColor: "#173019",
+    backgroundColor: "#173823",
   },
   feedbackText: {
     color: palette.text,
-    fontWeight: "800",
   },
   screenContent: {
     flexGrow: 1,
@@ -1406,7 +1404,6 @@ const styles = StyleSheet.create({
   mutedSmall: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "800",
   },
   addressRow: {
     alignItems: "center",
@@ -1417,7 +1414,6 @@ const styles = StyleSheet.create({
   addressText: {
     color: palette.text,
     fontSize: 18,
-    fontWeight: "900",
   },
   notificationButton: {
     alignItems: "center",
@@ -1449,7 +1445,6 @@ const styles = StyleSheet.create({
   searchText: {
     color: palette.muted,
     fontSize: 21,
-    fontWeight: "800",
   },
   promoCard: {
     alignItems: "center",
@@ -1462,21 +1457,18 @@ const styles = StyleSheet.create({
     padding: 26,
   },
   promoKicker: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 13,
-    fontWeight: "900",
     letterSpacing: 2,
   },
   promoTitle: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 28,
-    fontWeight: "900",
     marginTop: 8,
   },
   promoSubtitle: {
-    color: "#124018",
+    color: "#ffd6da",
     fontSize: 18,
-    fontWeight: "800",
     marginTop: 8,
   },
   categoryList: {
@@ -1502,10 +1494,9 @@ const styles = StyleSheet.create({
   categoryText: {
     color: palette.muted,
     fontSize: 16,
-    fontWeight: "900",
   },
   categoryTextActive: {
-    color: palette.background,
+    color: palette.onAccent,
   },
   sectionHeader: {
     alignItems: "center",
@@ -1516,13 +1507,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: palette.text,
     fontSize: 24,
-    fontWeight: "900",
     letterSpacing: -0.7,
   },
   mutedText: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "800",
   },
   productGrid: {
     flexDirection: "row",
@@ -1558,9 +1547,8 @@ const styles = StyleSheet.create({
     top: 12,
   },
   discountText: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 12,
-    fontWeight: "900",
   },
   soldOutBadge: {
     backgroundColor: palette.danger,
@@ -1574,19 +1562,16 @@ const styles = StyleSheet.create({
   soldOutText: {
     color: palette.text,
     fontSize: 12,
-    fontWeight: "900",
   },
   productName: {
     color: palette.text,
     fontSize: 18,
-    fontWeight: "900",
     marginTop: 14,
     minHeight: 44,
   },
   oldPrice: {
     color: palette.muted,
     fontSize: 13,
-    fontWeight: "800",
     marginTop: 8,
     textDecorationLine: "line-through",
   },
@@ -1598,13 +1583,11 @@ const styles = StyleSheet.create({
   productPrice: {
     color: palette.green,
     fontSize: 18,
-    fontWeight: "900",
   },
   unitText: {
     color: palette.muted,
     flex: 1,
     fontSize: 12,
-    fontWeight: "800",
     marginLeft: 3,
   },
   addButton: {
@@ -1616,7 +1599,7 @@ const styles = StyleSheet.create({
     width: 40,
   },
   addButtonDisabled: {
-    backgroundColor: "rgba(135,255,33,0.08)",
+    backgroundColor: "rgba(255,53,63,0.12)",
   },
   floatingCart: {
     alignItems: "center",
@@ -1632,20 +1615,17 @@ const styles = StyleSheet.create({
     right: 20,
   },
   floatingCartText: {
-    color: palette.background,
+    color: palette.onAccent,
     flex: 1,
-    fontWeight: "900",
   },
   screenTitle: {
     color: palette.text,
     fontSize: 36,
-    fontWeight: "900",
     letterSpacing: -1,
   },
   screenTitleCompact: {
     color: palette.text,
     fontSize: 24,
-    fontWeight: "900",
   },
   cartList: {
     gap: 16,
@@ -1672,12 +1652,10 @@ const styles = StyleSheet.create({
   cartName: {
     color: palette.text,
     fontSize: 18,
-    fontWeight: "900",
   },
   cartPrice: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "800",
     marginTop: 4,
   },
   quantityRow: {
@@ -1688,7 +1666,7 @@ const styles = StyleSheet.create({
   },
   quantityButton: {
     alignItems: "center",
-    backgroundColor: "#07100d",
+    backgroundColor: "#160f10",
     borderRadius: 18,
     height: 36,
     justifyContent: "center",
@@ -1697,7 +1675,12 @@ const styles = StyleSheet.create({
   quantityText: {
     color: palette.text,
     fontSize: 18,
-    fontWeight: "900",
+  },
+  cartTrashButton: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   summaryCard: {
     backgroundColor: palette.card,
@@ -1716,12 +1699,10 @@ const styles = StyleSheet.create({
   summaryLabel: {
     color: palette.muted,
     fontSize: 17,
-    fontWeight: "800",
   },
   summaryValue: {
     color: palette.text,
     fontSize: 17,
-    fontWeight: "900",
   },
   summaryDivider: {
     backgroundColor: palette.border,
@@ -1730,12 +1711,10 @@ const styles = StyleSheet.create({
   summaryLarge: {
     color: palette.text,
     fontSize: 23,
-    fontWeight: "900",
   },
   summaryLargeValue: {
     color: palette.green,
     fontSize: 23,
-    fontWeight: "900",
   },
   emptyState: {
     alignItems: "center",
@@ -1750,12 +1729,10 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: palette.text,
     fontSize: 19,
-    fontWeight: "900",
   },
   emptyText: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "700",
     textAlign: "center",
   },
   productDetailRoot: {
@@ -1796,14 +1773,12 @@ const styles = StyleSheet.create({
   detailCategory: {
     color: palette.green,
     fontSize: 14,
-    fontWeight: "900",
     letterSpacing: 1,
     marginBottom: 12,
   },
   detailTitle: {
     color: palette.text,
     fontSize: 36,
-    fontWeight: "900",
     letterSpacing: -1,
   },
   detailPriceRow: {
@@ -1815,25 +1790,21 @@ const styles = StyleSheet.create({
   detailPrice: {
     color: palette.green,
     fontSize: 34,
-    fontWeight: "900",
     letterSpacing: -0.8,
   },
   detailUnit: {
     color: palette.muted,
     fontSize: 18,
-    fontWeight: "800",
     marginBottom: 5,
   },
   detailSectionTitle: {
     color: palette.text,
     fontSize: 20,
-    fontWeight: "900",
     marginTop: 34,
   },
   detailDescription: {
     color: palette.muted,
     fontSize: 17,
-    fontWeight: "700",
     lineHeight: 25,
     marginTop: 14,
   },
@@ -1851,16 +1822,14 @@ const styles = StyleSheet.create({
   stockLabel: {
     color: palette.muted,
     fontSize: 16,
-    fontWeight: "800",
   },
   stockValue: {
     color: palette.green,
     fontSize: 16,
-    fontWeight: "900",
   },
   productDetailFooter: {
     alignItems: "center",
-    backgroundColor: "rgba(9,20,15,0.96)",
+    backgroundColor: "rgba(20,12,15,0.96)",
     borderTopColor: palette.border,
     borderTopWidth: 1,
     bottom: 0,
@@ -1885,7 +1854,7 @@ const styles = StyleSheet.create({
   },
   detailQuantityButton: {
     alignItems: "center",
-    backgroundColor: "#07100d",
+    backgroundColor: "#160f10",
     borderRadius: 22,
     height: 44,
     justifyContent: "center",
@@ -1894,7 +1863,6 @@ const styles = StyleSheet.create({
   detailQuantityText: {
     color: palette.text,
     fontSize: 20,
-    fontWeight: "900",
   },
   detailAddButton: {
     borderRadius: 16,
@@ -1922,7 +1890,6 @@ const styles = StyleSheet.create({
   checkoutSectionLabel: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "900",
     letterSpacing: 2,
     marginBottom: 16,
     marginTop: 8,
@@ -1942,19 +1909,17 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   checkoutOptionActive: {
-    backgroundColor: "rgba(135,255,33,0.08)",
+    backgroundColor: "rgba(255,53,63,0.12)",
     borderColor: palette.green,
   },
   checkoutOptionTitle: {
     color: palette.text,
     fontSize: 21,
-    fontWeight: "900",
     marginTop: 18,
   },
   checkoutOptionSubtitle: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "800",
     marginTop: 4,
   },
   addressCard: {
@@ -1968,12 +1933,10 @@ const styles = StyleSheet.create({
   addressCardTitle: {
     color: palette.text,
     fontSize: 20,
-    fontWeight: "900",
   },
   addressCardText: {
     color: palette.muted,
     fontSize: 17,
-    fontWeight: "800",
     marginTop: 6,
   },
   paymentList: {
@@ -1991,7 +1954,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   paymentOptionActive: {
-    backgroundColor: "rgba(135,255,33,0.08)",
+    backgroundColor: "rgba(255,53,63,0.12)",
     borderColor: palette.green,
   },
   paymentIcon: {
@@ -2008,17 +1971,15 @@ const styles = StyleSheet.create({
   paymentTitle: {
     color: palette.text,
     fontSize: 20,
-    fontWeight: "900",
   },
   paymentSubtitle: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "800",
     marginTop: 4,
   },
   checkoutFooter: {
     alignItems: "center",
-    backgroundColor: "rgba(9,20,15,0.96)",
+    backgroundColor: "rgba(20,12,15,0.96)",
     borderTopColor: palette.border,
     borderTopWidth: 1,
     bottom: 0,
@@ -2034,12 +1995,10 @@ const styles = StyleSheet.create({
   checkoutTotalLabel: {
     color: palette.muted,
     fontSize: 14,
-    fontWeight: "800",
   },
   checkoutTotal: {
     color: palette.green,
     fontSize: 23,
-    fontWeight: "900",
     marginTop: 4,
   },
   checkoutButton: {
@@ -2064,18 +2023,15 @@ const styles = StyleSheet.create({
   orderMeta: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "800",
   },
   orderItems: {
     color: palette.text,
     fontSize: 22,
-    fontWeight: "900",
     marginTop: 10,
   },
   orderTotal: {
     color: palette.green,
     fontSize: 18,
-    fontWeight: "900",
     marginTop: 13,
   },
   statusBadge: {
@@ -2086,7 +2042,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   statusBadge_success: {
-    backgroundColor: "#153b1f",
+    backgroundColor: "#153824",
   },
   statusBadge_warning: {
     backgroundColor: "#3f2d0a",
@@ -2096,10 +2052,9 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: {
     fontSize: 13,
-    fontWeight: "900",
   },
   statusBadgeText_success: {
-    color: palette.green,
+    color: palette.success,
   },
   statusBadgeText_warning: {
     color: palette.warning,
@@ -2127,24 +2082,21 @@ const styles = StyleSheet.create({
     width: 76,
   },
   avatarText: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 26,
-    fontWeight: "900",
   },
   profileName: {
     color: palette.text,
     fontSize: 21,
-    fontWeight: "900",
   },
   profileEmail: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "800",
     marginTop: 5,
   },
   roleBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "#244d13",
+    backgroundColor: "#4a1c20",
     borderRadius: 12,
     marginTop: 10,
     paddingHorizontal: 10,
@@ -2153,7 +2105,6 @@ const styles = StyleSheet.create({
   roleBadgeText: {
     color: palette.green,
     fontSize: 12,
-    fontWeight: "900",
   },
   profileAction: {
     alignItems: "center",
@@ -2168,7 +2119,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   profileActionActive: {
-    borderColor: "#4f9f18",
+    borderColor: palette.green,
   },
   profileActionIcon: {
     alignItems: "center",
@@ -2182,19 +2133,17 @@ const styles = StyleSheet.create({
     color: palette.text,
     flex: 1,
     fontSize: 20,
-    fontWeight: "900",
   },
   logoutAction: {
     borderColor: palette.border,
   },
   logoutIcon: {
-    backgroundColor: "#331b1b",
+    backgroundColor: "#3b191c",
   },
   logoutText: {
     color: palette.danger,
     flex: 1,
     fontSize: 20,
-    fontWeight: "900",
   },
   trackHeader: {
     alignItems: "center",
@@ -2217,22 +2166,19 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   deliveryCodeLabel: {
-    color: "#11551d",
+    color: "#ffe6e8",
     fontSize: 13,
-    fontWeight: "900",
     letterSpacing: 3,
   },
   deliveryCode: {
-    color: palette.background,
+    color: palette.onAccent,
     fontSize: 70,
-    fontWeight: "900",
     letterSpacing: 12,
     marginTop: 8,
   },
   deliveryCodeHint: {
-    color: "#11551d",
+    color: "#ffe6e8",
     fontSize: 16,
-    fontWeight: "800",
   },
   courierCard: {
     alignItems: "center",
@@ -2247,7 +2193,7 @@ const styles = StyleSheet.create({
   },
   courierAvatar: {
     alignItems: "center",
-    backgroundColor: "#244d13",
+    backgroundColor: "#4a1c20",
     borderRadius: 30,
     height: 58,
     justifyContent: "center",
@@ -2259,7 +2205,6 @@ const styles = StyleSheet.create({
   courierName: {
     color: palette.text,
     fontSize: 20,
-    fontWeight: "900",
   },
   contactButton: {
     alignItems: "center",
@@ -2280,7 +2225,6 @@ const styles = StyleSheet.create({
   trackTitle: {
     color: palette.text,
     fontSize: 22,
-    fontWeight: "900",
     marginTop: 30,
   },
   timeline: {
@@ -2304,13 +2248,12 @@ const styles = StyleSheet.create({
     backgroundColor: palette.green,
   },
   timelineIconActive: {
-    borderColor: "#64bf18",
+    borderColor: "#8f232b",
     borderWidth: 7,
   },
   timelineLabel: {
     color: palette.text,
     fontSize: 21,
-    fontWeight: "900",
   },
   timelineLabelMuted: {
     color: palette.muted,
@@ -2318,12 +2261,11 @@ const styles = StyleSheet.create({
   timelineTime: {
     color: palette.muted,
     fontSize: 15,
-    fontWeight: "800",
     marginTop: 2,
   },
   bottomTabs: {
     alignItems: "center",
-    backgroundColor: "rgba(16,26,23,0.98)",
+    backgroundColor: "rgba(30,20,20,0.98)",
     borderTopColor: palette.border,
     borderTopWidth: 1,
     bottom: 0,
@@ -2341,7 +2283,6 @@ const styles = StyleSheet.create({
   tabLabel: {
     color: palette.muted,
     fontSize: 13,
-    fontWeight: "900",
   },
   tabLabelActive: {
     color: palette.green,
@@ -2350,3 +2291,5 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+

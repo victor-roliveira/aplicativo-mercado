@@ -323,6 +323,65 @@ export async function addProductToCart(product: ProductSummary): Promise<CartLin
   return fetchCartItems();
 }
 
+export async function decrementCartItem(productId: string): Promise<CartLine[]> {
+  const client = getClient();
+  const cartId = await getOpenCartId();
+  const { data: existingItem, error: existingItemError } = await client
+    .from("cart_items")
+    .select("id, quantity")
+    .eq("cart_id", cartId)
+    .eq("product_id", productId)
+    .maybeSingle();
+
+  if (existingItemError) {
+    throw existingItemError;
+  }
+
+  if (!existingItem) {
+    return fetchCartItems();
+  }
+
+  if (existingItem.quantity <= 1) {
+    const { error } = await client
+      .from("cart_items")
+      .delete()
+      .eq("id", existingItem.id);
+
+    if (error) {
+      throw error;
+    }
+
+    return fetchCartItems();
+  }
+
+  const { error } = await client
+    .from("cart_items")
+    .update({ quantity: existingItem.quantity - 1 })
+    .eq("id", existingItem.id);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchCartItems();
+}
+
+export async function removeCartItem(productId: string): Promise<CartLine[]> {
+  const client = getClient();
+  const cartId = await getOpenCartId();
+  const { error } = await client
+    .from("cart_items")
+    .delete()
+    .eq("cart_id", cartId)
+    .eq("product_id", productId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchCartItems();
+}
+
 export async function checkoutCart(
   deliveryMode: DeliveryMode,
   paymentMethod: PaymentMethod,
