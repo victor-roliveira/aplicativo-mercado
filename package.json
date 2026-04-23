@@ -23,6 +23,9 @@
   "scripts": {
     "mobile": "npm run start --workspace @mercado/mobile",
     "mobile:tunnel": "npm run tunnel --workspace @mercado/mobile",
+    "mobile:lan": "npm run lan --workspace @mercado/mobile",
+    "mobile:lan:fixed": "npm run lan:fixed --workspace @mercado/mobile",
+    "mobile:local": "npm run local --workspace @mercado/mobile",
     "webhooks": "npm run dev --workspace @mercado/webhooks",
     "typecheck": "npm run typecheck --workspace @mercado/mobile && npm run typecheck --workspace @mercado/webhooks && npm run typecheck --workspace @mercado/shared"
   }

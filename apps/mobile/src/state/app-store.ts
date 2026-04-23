@@ -54,6 +54,37 @@ const demoProducts: ProductSummary[] = [
 ];
 
 function getErrorMessage(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String(error.message)
+        : typeof error === "string"
+          ? error
+          : "";
+
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("invalid login credentials")) {
+    return "Email ou senha incorretos.";
+  }
+
+  if (normalizedMessage.includes("email not confirmed")) {
+    return "Confirme seu email no Supabase antes de entrar.";
+  }
+
+  if (normalizedMessage.includes("auth session missing")) {
+    return "Sessao expirada. Entre novamente para continuar.";
+  }
+
+  if (normalizedMessage.includes("network request failed") || normalizedMessage.includes("fetch")) {
+    return "Nao foi possivel conectar ao Supabase. Verifique sua internet e as chaves do .env.";
+  }
+
+  if (message) {
+    return message;
+  }
+
   if (error instanceof Error) {
     return error.message;
   }

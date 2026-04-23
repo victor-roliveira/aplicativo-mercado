@@ -10,7 +10,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeInUp } from "react-native-reanimated";
 import { Button, Chip, Text, TextInput } from "react-native-paper";
-import type { AppRole, OrderStatus, ProductSummary } from "@mercado/shared/domain/models";
+import type {
+  AppRole,
+  DeliveryMode,
+  OrderStatus,
+  PaymentMethod,
+  ProductSummary,
+} from "@mercado/shared/domain/models";
 import { subscribeToAuthChanges } from "../services/market-api";
 import { useOrderRealtime } from "../services/use-order-realtime";
 import { useAppStore } from "../state/app-store";
@@ -18,6 +24,7 @@ import { useAppStore } from "../state/app-store";
 type PublicScreen = "landing" | "login" | "register";
 type AppTab = "home" | "cart" | "orders" | "profile";
 type FeatherName = keyof typeof Feather.glyphMap;
+type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const palette = {
   background: "#09140f",
@@ -85,6 +92,10 @@ function getDiscountPercent(product: ProductSummary) {
 
 function getProductImage(product?: ProductSummary) {
   return product?.imageUrl ?? "https://images.unsplash.com/photo-1542838132-92c53300491e";
+}
+
+function getEffectivePrice(product: ProductSummary) {
+  return product.priceInCents - product.discountInCents;
 }
 
 function Logo() {
@@ -382,7 +393,13 @@ function AuthScreen({
   );
 }
 
-function HomeScreen({ onCart }: { onCart: () => void }) {
+function HomeScreen({
+  onCart,
+  onProduct,
+}: {
+  onCart: () => void;
+  onProduct: (productId: string) => void;
+}) {
   const products = useAppStore((state) => state.products);
   const cart = useAppStore((state) => state.cart);
   const isLoading = useAppStore((state) => state.isLoading);
@@ -466,6 +483,7 @@ function HomeScreen({ onCart }: { onCart: () => void }) {
             product={product}
             index={index}
             loading={isLoading}
+            onOpen={() => onProduct(product.id)}
             onAdd={() => void addToCart(product)}
           />
         ))}
@@ -486,53 +504,56 @@ function ProductCard({
   product,
   index,
   loading,
+  onOpen,
   onAdd,
 }: {
   product: ProductSummary;
   index: number;
   loading: boolean;
+  onOpen: () => void;
   onAdd: () => void;
 }) {
   const discount = getDiscountPercent(product);
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 60).duration(280)} style={styles.productCard}>
-      <Image source={{ uri: getProductImage(product) }} style={styles.productImage} />
-      {discount > 0 ? (
-        <View style={styles.discountBadge}>
-          <Text style={styles.discountText}>-{discount}%</Text>
+    <Animated.View entering={FadeInUp.delay(index * 60).duration(280)} style={styles.productCardWrap}>
+      <Pressable style={styles.productCard} onPress={onOpen}>
+        <Image source={{ uri: getProductImage(product) }} style={styles.productImage} />
+        {discount > 0 ? (
+          <View style={styles.discountBadge}>
+            <Text style={styles.discountText}>-{discount}%</Text>
+          </View>
+        ) : null}
+        {!product.isAvailable ? (
+          <View style={styles.soldOutBadge}>
+            <Text style={styles.soldOutText}>Esgotado</Text>
+          </View>
+        ) : null}
+        <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+        {product.discountInCents > 0 ? (
+          <Text style={styles.oldPrice}>{formatCurrency(product.priceInCents)}</Text>
+        ) : null}
+        <View style={styles.priceRow}>
+          <Text style={styles.productPrice}>
+            {formatCurrency(getEffectivePrice(product))}
+          </Text>
+          <Text style={styles.unitText}>/un</Text>
+          <Pressable
+            disabled={!product.isAvailable || loading}
+            style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
+            onPress={onAdd}
+          >
+            <Feather name="plus" size={25} color={palette.background} />
+          </Pressable>
         </View>
-      ) : null}
-      {!product.isAvailable ? (
-        <View style={styles.soldOutBadge}>
-          <Text style={styles.soldOutText}>Esgotado</Text>
-        </View>
-      ) : null}
-      <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-      {product.discountInCents > 0 ? (
-        <Text style={styles.oldPrice}>{formatCurrency(product.priceInCents)}</Text>
-      ) : null}
-      <View style={styles.priceRow}>
-        <Text style={styles.productPrice}>
-          {formatCurrency(product.priceInCents - product.discountInCents)}
-        </Text>
-        <Text style={styles.unitText}>/un</Text>
-        <Pressable
-          disabled={!product.isAvailable || loading}
-          style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
-          onPress={onAdd}
-        >
-          <Feather name="plus" size={25} color={palette.background} />
-        </Pressable>
-      </View>
+      </Pressable>
     </Animated.View>
   );
 }
 
-function CartScreen() {
+function CartScreen({ onCheckout }: { onCheckout: () => void }) {
   const cart = useAppStore((state) => state.cart);
   const products = useAppStore((state) => state.products);
-  const checkout = useAppStore((state) => state.checkout);
   const addToCart = useAppStore((state) => state.addToCart);
   const isLoading = useAppStore((state) => state.isLoading);
   const subtotal = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -592,11 +613,262 @@ function CartScreen() {
             label="Finalizar pedido"
             loading={isLoading}
             disabled={isLoading}
-            onPress={() => void checkout("DELIVERY", "PIX")}
+            onPress={onCheckout}
           />
         </>
       )}
     </ScrollView>
+  );
+}
+
+function ProductDetailScreen({
+  product,
+  onBack,
+}: {
+  product: ProductSummary;
+  onBack: () => void;
+}) {
+  const addToCart = useAppStore((state) => state.addToCart);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const [quantity, setQuantity] = useState(product.isAvailable ? 1 : 0);
+  const price = getEffectivePrice(product);
+  const unit = product.categoryName.toLowerCase().includes("fruta") ? "kg" : "un";
+
+  const handleAdd = async () => {
+    for (let index = 0; index < quantity; index += 1) {
+      await addToCart(product);
+    }
+  };
+
+  return (
+    <View style={styles.productDetailRoot}>
+      <ScrollView contentContainerStyle={styles.productDetailContent}>
+        <View style={styles.productHero}>
+          <Image source={{ uri: getProductImage(product) }} style={styles.productHeroImage} />
+          <Pressable style={styles.detailBackButton} onPress={onBack}>
+            <Feather name="arrow-left" size={22} color={palette.text} />
+          </Pressable>
+        </View>
+
+        <View style={styles.productDetailSheet}>
+          <Text style={styles.detailCategory}>{product.categoryName.toUpperCase()}</Text>
+          <Text style={styles.detailTitle}>{product.name}</Text>
+          <View style={styles.detailPriceRow}>
+            <Text style={styles.detailPrice}>{formatCurrency(price)}</Text>
+            <Text style={styles.detailUnit}>/ {unit}</Text>
+          </View>
+
+          <Text style={styles.detailSectionTitle}>Descricao</Text>
+          <Text style={styles.detailDescription}>
+            {product.description || "Produto fresco selecionado pelo produtor local."}
+          </Text>
+
+          <View style={styles.stockCard}>
+            <Text style={styles.stockLabel}>
+              {product.isAvailable ? "Disponivel em estoque" : "Produto indisponivel"}
+            </Text>
+            <Text style={styles.stockValue}>{product.availableQuantity} {unit}</Text>
+          </View>
+        </View>
+      </ScrollView>
+
+      <View style={styles.productDetailFooter}>
+        <View style={styles.detailQuantityControl}>
+          <Pressable
+            style={styles.detailQuantityButton}
+            disabled={quantity <= 1}
+            onPress={() => setQuantity((current) => Math.max(1, current - 1))}
+          >
+            <Feather name="minus" size={20} color={palette.text} />
+          </Pressable>
+          <Text style={styles.detailQuantityText}>{quantity}</Text>
+          <Pressable
+            style={styles.detailQuantityButton}
+            disabled={!product.isAvailable || quantity >= product.availableQuantity}
+            onPress={() => setQuantity((current) => Math.min(product.availableQuantity, current + 1))}
+          >
+            <Feather name="plus" size={20} color={palette.text} />
+          </Pressable>
+        </View>
+        <Button
+          mode="contained"
+          loading={isLoading}
+          disabled={isLoading || !product.isAvailable}
+          buttonColor={palette.green}
+          textColor={palette.background}
+          style={styles.detailAddButton}
+          contentStyle={styles.detailAddButtonContent}
+          labelStyle={styles.primaryButtonLabel}
+          icon={({ color, size }) => <Feather name="shopping-bag" color={color} size={size} />}
+          onPress={() => void handleAdd()}
+        >
+          Adicionar - {formatCurrency(price * quantity)}
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+function CheckoutScreen({
+  onBack,
+  onCompleted,
+}: {
+  onBack: () => void;
+  onCompleted: () => void;
+}) {
+  const cart = useAppStore((state) => state.cart);
+  const checkout = useAppStore((state) => state.checkout);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("DELIVERY");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PIX");
+  const subtotal = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const deliveryFee = deliveryMode === "DELIVERY" && cart.length > 0 ? 1200 : 0;
+  const total = subtotal + deliveryFee;
+
+  const handleConfirm = async () => {
+    await checkout(deliveryMode, paymentMethod);
+
+    if (cart.length > 0 && useAppStore.getState().cart.length === 0) {
+      onCompleted();
+    }
+  };
+
+  return (
+    <View style={styles.checkoutRoot}>
+      <ScrollView contentContainerStyle={styles.checkoutContent}>
+        <View style={styles.checkoutHeader}>
+          <Pressable style={styles.backCircle} onPress={onBack}>
+            <Feather name="arrow-left" size={22} color={palette.text} />
+          </Pressable>
+          <Text style={styles.screenTitleCompact}>Finalizar</Text>
+        </View>
+
+        <Text style={styles.checkoutSectionLabel}>COMO RECEBER</Text>
+        <View style={styles.deliveryOptions}>
+          <CheckoutOption
+            icon="home-outline"
+            title="Entrega"
+            subtitle="40-60 min"
+            selected={deliveryMode === "DELIVERY"}
+            onPress={() => setDeliveryMode("DELIVERY")}
+          />
+          <CheckoutOption
+            icon="storefront-outline"
+            title="Retirar"
+            subtitle="Em 20 min"
+            selected={deliveryMode === "PICKUP"}
+            onPress={() => setDeliveryMode("PICKUP")}
+          />
+        </View>
+
+        <Text style={styles.checkoutSectionLabel}>ENDERECO</Text>
+        <View style={styles.addressCard}>
+          <Text style={styles.addressCardTitle}>Casa</Text>
+          <Text style={styles.addressCardText}>Rua das Flores, 120 - Apto 42</Text>
+        </View>
+
+        <Text style={styles.checkoutSectionLabel}>PAGAMENTO</Text>
+        <View style={styles.paymentList}>
+          <PaymentOption
+            icon="qrcode"
+            title="Pix"
+            subtitle="Aprovacao instantanea via Abacate Pay"
+            selected={paymentMethod === "PIX"}
+            onPress={() => setPaymentMethod("PIX")}
+          />
+          <PaymentOption
+            icon="credit-card-fast-outline"
+            title="Cartao online"
+            subtitle="Pague agora com Abacate Pay"
+            selected={paymentMethod === "CARD_ONLINE"}
+            onPress={() => setPaymentMethod("CARD_ONLINE")}
+          />
+          <PaymentOption
+            icon="credit-card-outline"
+            title="Cartao na entrega"
+            subtitle="Credito ou debito"
+            selected={paymentMethod === "CARD_ON_DELIVERY"}
+            onPress={() => setPaymentMethod("CARD_ON_DELIVERY")}
+          />
+          <PaymentOption
+            icon="cash"
+            title="Dinheiro na entrega"
+            subtitle="Informe valor para troco"
+            selected={paymentMethod === "CASH"}
+            onPress={() => setPaymentMethod("CASH")}
+          />
+        </View>
+      </ScrollView>
+
+      <View style={styles.checkoutFooter}>
+        <View>
+          <Text style={styles.checkoutTotalLabel}>Total</Text>
+          <Text style={styles.checkoutTotal}>{formatCurrency(total)}</Text>
+        </View>
+        <Button
+          mode="contained"
+          loading={isLoading}
+          disabled={isLoading || cart.length === 0}
+          buttonColor={palette.green}
+          textColor={palette.background}
+          style={styles.checkoutButton}
+          contentStyle={styles.checkoutButtonContent}
+          labelStyle={styles.primaryButtonLabel}
+          onPress={() => void handleConfirm()}
+        >
+          Confirmar pedido
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+function CheckoutOption({
+  icon,
+  title,
+  subtitle,
+  selected,
+  onPress,
+}: {
+  icon: MaterialIconName;
+  title: string;
+  subtitle: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.checkoutOption, selected && styles.checkoutOptionActive]} onPress={onPress}>
+      <MaterialCommunityIcons name={icon} size={25} color={selected ? palette.green : palette.muted} />
+      <Text style={styles.checkoutOptionTitle}>{title}</Text>
+      <Text style={styles.checkoutOptionSubtitle}>{subtitle}</Text>
+    </Pressable>
+  );
+}
+
+function PaymentOption({
+  icon,
+  title,
+  subtitle,
+  selected,
+  onPress,
+}: {
+  icon: MaterialIconName;
+  title: string;
+  subtitle: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.paymentOption, selected && styles.paymentOptionActive]} onPress={onPress}>
+      <View style={[styles.paymentIcon, selected && styles.paymentIconActive]}>
+        <MaterialCommunityIcons name={icon} size={24} color={selected ? palette.background : palette.muted} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.paymentTitle}>{title}</Text>
+        <Text style={styles.paymentSubtitle}>{subtitle}</Text>
+      </View>
+      {selected ? <Feather name="check" size={23} color={palette.green} /> : null}
+    </Pressable>
   );
 }
 
@@ -811,6 +1083,9 @@ export function AppNavigator() {
   const [publicScreen, setPublicScreen] = useState<PublicScreen>("landing");
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [tracking, setTracking] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string>();
+  const products = useAppStore((state) => state.products);
 
   useEffect(() => {
     void bootstrap();
@@ -848,23 +1123,47 @@ export function AppNavigator() {
   }
 
   const shouldShowCustomerTabs = activeRole === "CUSTOMER";
+  const selectedProduct = products.find((product) => product.id === selectedProductId);
+  const isNestedScreen = tracking || checkoutOpen || Boolean(selectedProduct);
+  const handleTabChange = (tab: AppTab) => {
+    setTracking(false);
+    setCheckoutOpen(false);
+    setSelectedProductId(undefined);
+    setActiveTab(tab);
+  };
 
   return (
     <SafeAreaView style={styles.appRoot} edges={["top", "left", "right"]}>
       <FeedbackBar />
-      {tracking ? (
+      {selectedProduct ? (
+        <ProductDetailScreen
+          product={selectedProduct}
+          onBack={() => setSelectedProductId(undefined)}
+        />
+      ) : checkoutOpen ? (
+        <CheckoutScreen
+          onBack={() => setCheckoutOpen(false)}
+          onCompleted={() => {
+            setCheckoutOpen(false);
+            setActiveTab("orders");
+          }}
+        />
+      ) : tracking ? (
         <TrackScreen onBack={() => setTracking(false)} />
       ) : activeTab === "home" ? (
-        <HomeScreen onCart={() => setActiveTab("cart")} />
+        <HomeScreen
+          onCart={() => setActiveTab("cart")}
+          onProduct={setSelectedProductId}
+        />
       ) : activeTab === "cart" ? (
-        <CartScreen />
+        <CartScreen onCheckout={() => setCheckoutOpen(true)} />
       ) : activeTab === "orders" ? (
         <OrdersScreen onTrack={() => setTracking(true)} />
       ) : (
         <ProfileScreen />
       )}
-      {shouldShowCustomerTabs && !tracking ? (
-        <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
+      {shouldShowCustomerTabs && !isNestedScreen ? (
+        <BottomTabs activeTab={activeTab} onChange={handleTabChange} />
       ) : null}
     </SafeAreaView>
   );
@@ -1231,6 +1530,9 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 16,
   },
+  productCardWrap: {
+    width: "48%",
+  },
   productCard: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1238,7 +1540,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
     padding: 12,
-    width: "48%",
+    width: "100%",
   },
   productImage: {
     backgroundColor: palette.cardSoft,
@@ -1455,6 +1757,297 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
+  },
+  productDetailRoot: {
+    flex: 1,
+    backgroundColor: palette.background,
+  },
+  productDetailContent: {
+    flexGrow: 1,
+    paddingBottom: 116,
+  },
+  productHero: {
+    backgroundColor: palette.backgroundSoft,
+    height: 268,
+  },
+  productHeroImage: {
+    height: "100%",
+    width: "100%",
+  },
+  detailBackButton: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderRadius: 24,
+    height: 48,
+    justifyContent: "center",
+    left: 20,
+    position: "absolute",
+    top: 18,
+    width: 48,
+  },
+  productDetailSheet: {
+    backgroundColor: palette.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -28,
+    paddingHorizontal: 22,
+    paddingTop: 36,
+  },
+  detailCategory: {
+    color: palette.green,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  detailTitle: {
+    color: palette.text,
+    fontSize: 36,
+    fontWeight: "900",
+    letterSpacing: -1,
+  },
+  detailPriceRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 18,
+  },
+  detailPrice: {
+    color: palette.green,
+    fontSize: 34,
+    fontWeight: "900",
+    letterSpacing: -0.8,
+  },
+  detailUnit: {
+    color: palette.muted,
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 5,
+  },
+  detailSectionTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 34,
+  },
+  detailDescription: {
+    color: palette.muted,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 25,
+    marginTop: 14,
+  },
+  stockCard: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 30,
+    padding: 20,
+  },
+  stockLabel: {
+    color: palette.muted,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  stockValue: {
+    color: palette.green,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  productDetailFooter: {
+    alignItems: "center",
+    backgroundColor: "rgba(9,20,15,0.96)",
+    borderTopColor: palette.border,
+    borderTopWidth: 1,
+    bottom: 0,
+    flexDirection: "row",
+    gap: 14,
+    left: 0,
+    paddingBottom: 18,
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    position: "absolute",
+    right: 0,
+  },
+  detailQuantityControl: {
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+    borderRadius: 24,
+    flexDirection: "row",
+    height: 58,
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    width: 168,
+  },
+  detailQuantityButton: {
+    alignItems: "center",
+    backgroundColor: "#07100d",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  detailQuantityText: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  detailAddButton: {
+    borderRadius: 16,
+    flex: 1,
+  },
+  detailAddButtonContent: {
+    height: 58,
+  },
+  checkoutRoot: {
+    flex: 1,
+    backgroundColor: palette.backgroundSoft,
+  },
+  checkoutContent: {
+    flexGrow: 1,
+    paddingBottom: 122,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  checkoutHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 28,
+  },
+  checkoutSectionLabel: {
+    color: palette.muted,
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 2,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  deliveryOptions: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 30,
+  },
+  checkoutOption: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 17,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 122,
+    padding: 20,
+  },
+  checkoutOptionActive: {
+    backgroundColor: "rgba(135,255,33,0.08)",
+    borderColor: palette.green,
+  },
+  checkoutOptionTitle: {
+    color: palette.text,
+    fontSize: 21,
+    fontWeight: "900",
+    marginTop: 18,
+  },
+  checkoutOptionSubtitle: {
+    color: palette.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  addressCard: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 30,
+    padding: 20,
+  },
+  addressCardTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  addressCardText: {
+    color: palette.muted,
+    fontSize: 17,
+    fontWeight: "800",
+    marginTop: 6,
+  },
+  paymentList: {
+    gap: 12,
+  },
+  paymentOption: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 16,
+    minHeight: 88,
+    padding: 18,
+  },
+  paymentOptionActive: {
+    backgroundColor: "rgba(135,255,33,0.08)",
+    borderColor: palette.green,
+  },
+  paymentIcon: {
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+    borderRadius: 14,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
+  },
+  paymentIconActive: {
+    backgroundColor: palette.green,
+  },
+  paymentTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  paymentSubtitle: {
+    color: palette.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  checkoutFooter: {
+    alignItems: "center",
+    backgroundColor: "rgba(9,20,15,0.96)",
+    borderTopColor: palette.border,
+    borderTopWidth: 1,
+    bottom: 0,
+    flexDirection: "row",
+    gap: 16,
+    left: 0,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    position: "absolute",
+    right: 0,
+  },
+  checkoutTotalLabel: {
+    color: palette.muted,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  checkoutTotal: {
+    color: palette.green,
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  checkoutButton: {
+    borderRadius: 14,
+    flex: 1,
+  },
+  checkoutButtonContent: {
+    height: 58,
   },
   orderCard: {
     alignItems: "center",

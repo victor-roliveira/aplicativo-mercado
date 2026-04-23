@@ -8,7 +8,7 @@ export type OrderStatus =
   | "CANCELLED"
   | "STOCK_ISSUE";
 
-export type PaymentMethod = "PIX" | "CASH" | "CARD_ON_DELIVERY";
+export type PaymentMethod = "PIX" | "CASH" | "CARD_ON_DELIVERY" | "CARD_ONLINE";
 export type DeliveryMode = "DELIVERY" | "PICKUP";
 
 export type ProductSummary = {
