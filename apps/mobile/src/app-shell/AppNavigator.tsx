@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -21,7 +21,7 @@ import { subscribeToAuthChanges } from "../services/market-api";
 import { useOrderRealtime } from "../services/use-order-realtime";
 import { useAppStore } from "../state/app-store";
 
-type PublicScreen = "landing" | "login" | "register";
+type PublicScreen = "landing" | "login" | "register" | "register-courier";
 type AppTab = "home" | "cart" | "orders" | "profile";
 type FeatherName = keyof typeof Feather.glyphMap;
 type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
@@ -67,15 +67,69 @@ const statusTone: Partial<Record<OrderStatus, "success" | "warning" | "danger">>
   STOCK_ISSUE: "danger",
 };
 
-const categoryIcons: Record<string, string> = {
-  hortifruti: "broccoli",
-  frutas: "food-apple-outline",
-  bebidas: "bottle-soda-outline",
-  mercearia: "basket-outline",
-  padaria: "bread-slice-outline",
-  frios: "cheese",
-  limpeza: "spray-bottle",
-};
+const logoFullImage = require("../../assets/images/icone-supermercado-completo.png");
+const categoryImages = {
+  "Todos": require("../../assets/images/icone-todos.png"),
+  "Bebidas": require("../../assets/images/icone-bebidas.png"),
+  "Proteínas": require("../../assets/images/icone-proteinas.png"),
+  "Frios": require("../../assets/images/icone-frios.png"),
+  "Frutas e Verduras": require("../../assets/images/icone-frutas-verduras.png"),
+  "Laticínios": require("../../assets/images/icone-laticinios.png"),
+} as const;
+
+type CategoryPillLabel = keyof typeof categoryImages;
+
+function getCategoryGroup(categoryName: string): CategoryPillLabel | string {
+  const normalized = categoryName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (
+    normalized.includes("hortifruti") ||
+    normalized.includes("fruta") ||
+    normalized.includes("verdura") ||
+    normalized.includes("legume")
+  ) {
+    return "Frutas e Verduras";
+  }
+
+  if (
+    normalized.includes("carne") ||
+    normalized.includes("frango") ||
+    normalized.includes("peixe") ||
+    normalized.includes("fruto do mar") ||
+    normalized.includes("frutos do mar") ||
+    normalized.includes("proteina")
+  ) {
+    return "Proteínas";
+  }
+
+  if (
+    normalized.includes("frios") ||
+    normalized.includes("presunto") ||
+    normalized.includes("salame") ||
+    normalized.includes("embutido") ||
+    normalized.includes("queijo")
+  ) {
+    return "Frios";
+  }
+
+  if (
+    normalized.includes("leite") ||
+    normalized.includes("iogurte") ||
+    normalized.includes("manteiga") ||
+    normalized.includes("laticinio")
+  ) {
+    return "Laticínios";
+  }
+
+  if (normalized.includes("bebida") || normalized.includes("suco") || normalized.includes("agua")) {
+    return "Bebidas";
+  }
+
+  return categoryName;
+}
 
 function formatCurrency(valueInCents: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -103,10 +157,7 @@ function getEffectivePrice(product: ProductSummary) {
 function Logo() {
   return (
     <View style={styles.logoRow}>
-      <View style={styles.logoMark}>
-        <MaterialCommunityIcons name="leaf" size={28} color={palette.onAccent} />
-      </View>
-      <Text style={styles.logoText}>verdejá</Text>
+      <Image source={logoFullImage} style={styles.logoImage} resizeMode="contain" />
     </View>
   );
 }
@@ -215,10 +266,6 @@ function LandingScreen({ onLogin, onRegister }: { onLogin: () => void; onRegiste
         </Pressable>
       </View>
 
-      <Chip compact textStyle={styles.badgeText} style={styles.badge}>
-        Mercado fresquinho em casa
-      </Chip>
-
       <Text style={styles.heroTitle}>
         Seu mercado{"\n"}em <Text style={styles.heroTitleAccent}>minutos.</Text>
       </Text>
@@ -261,21 +308,25 @@ function Feature({ icon, label }: { icon: FeatherName; label: string }) {
 
 function AuthScreen({
   mode,
+  registrationKind = "customer",
   onModeChange,
 }: {
   mode: "login" | "register";
+  registrationKind?: "customer" | "courier";
   onModeChange: (mode: PublicScreen) => void;
 }) {
   const signIn = useAppStore((state) => state.signIn);
   const signUp = useAppStore((state) => state.signUp);
   const isLoading = useAppStore((state) => state.isLoading);
-  const setActiveRole = useAppStore((state) => state.setActiveRole);
+  const isCourierRegistration = mode === "register" && registrationKind === "courier";
   const [form, setForm] = useState({
     email: "",
     password: "",
     fullName: "",
     cpf: "",
     phone: "",
+    vehiclePlate: "",
+    driverLicense: "",
   });
 
   const updateForm = (field: keyof typeof form, value: string) => {
@@ -288,7 +339,10 @@ function AuthScreen({
       return;
     }
 
-    void signUp(form);
+    void signUp({
+      ...form,
+      accountRole: isCourierRegistration ? "COURIER" : "CUSTOMER",
+    });
   };
 
   return (
@@ -298,10 +352,18 @@ function AuthScreen({
       </Pressable>
       <Logo />
       <Text style={styles.authTitle}>
-        {mode === "login" ? "Bem-vindo de volta" : "Criar sua conta"}
+        {mode === "login"
+          ? "Bem-vindo de volta"
+          : isCourierRegistration
+            ? "Criar conta de entregador"
+            : "Criar sua conta"}
       </Text>
       <Text style={styles.authSubtitle}>
-        {mode === "login" ? "Entre para continuar suas compras" : "Leva menos de um minuto"}
+        {mode === "login"
+          ? "Entre para continuar suas compras"
+          : isCourierRegistration
+            ? "Preencha seus dados para solicitar acesso como entregador"
+            : "Leva menos de um minuto"}
       </Text>
 
       <View style={styles.authForm}>
@@ -323,6 +385,26 @@ function AuthScreen({
               onChangeText={(value) => updateForm("cpf", value)}
             />
             <Text style={styles.inputHint}>Os 4 últimos dígitos serão seu código de entrega</Text>
+            {isCourierRegistration ? (
+              <>
+                <AppInput
+                  label="Placa"
+                  icon="truck"
+                  value={form.vehiclePlate}
+                  placeholder="ABC1D23"
+                  onChangeText={(value) => updateForm("vehiclePlate", value.toUpperCase())}
+                />
+                <AppInput
+                  label="CNH"
+                  icon="file-text"
+                  value={form.driverLicense}
+                  placeholder="00000000000"
+                  keyboardType="number-pad"
+                  onChangeText={(value) => updateForm("driverLicense", value)}
+                />
+                <Text style={styles.inputHint}>Esses dados serão usados para validar sua conta de entregador</Text>
+              </>
+            ) : null}
           </>
         ) : null}
 
@@ -338,7 +420,7 @@ function AuthScreen({
           label="Senha"
           icon="lock"
           value={form.password}
-          placeholder={mode === "login" ? "••••••••" : "mínimo 8 caracteres"}
+          placeholder={mode === "login" ? "********" : "mínimo 8 caracteres"}
           secureTextEntry
           onChangeText={(value) => updateForm("password", value)}
         />
@@ -359,27 +441,31 @@ function AuthScreen({
       </View>
 
       <PrimaryButton
-        label={mode === "login" ? "Entrar" : "Criar conta"}
+        label={mode === "login" ? "Entrar" : isCourierRegistration ? "Criar conta de entregador" : "Criar conta"}
         loading={isLoading}
         disabled={isLoading}
         onPress={submit}
       />
 
-      {mode === "login" ? (
-        <>
-          <View style={styles.demoRoles}>
-            {(["CUSTOMER", "COURIER", "ADMIN"] as AppRole[]).map((role) => (
-              <Pressable
-                key={role}
-                style={styles.demoRoleButton}
-                onPress={() => setActiveRole(role)}
-              >
-                <Text style={styles.demoRoleText}>{roleLabels[role]}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.demoText}>demo: acesse direto cada perfil após login</Text>
-        </>
+      {mode === "register" && !isCourierRegistration ? (
+        <Button
+          mode="contained-tonal"
+          textColor={palette.text}
+          buttonColor={palette.cardSoft}
+          contentStyle={styles.courierSignupContent}
+          style={styles.courierSignupButton}
+          onPress={() => onModeChange("register-courier")}
+        >
+          Criar conta como entregador
+        </Button>
+      ) : null}
+
+      {mode === "register" && isCourierRegistration ? (
+        <Pressable style={styles.authSwitch} onPress={() => onModeChange("register")}>
+          <Text style={styles.authSwitchText}>
+            Quero comprar no app. <Text style={styles.greenText}>Criar conta de cliente</Text>
+          </Text>
+        </Pressable>
       ) : null}
 
       <Pressable
@@ -406,17 +492,50 @@ function HomeScreen({
   const cart = useAppStore((state) => state.cart);
   const isLoading = useAppStore((state) => state.isLoading);
   const addToCart = useAppStore((state) => state.addToCart);
-  const [selectedCategory, setSelectedCategory] = useState("Tudo");
+  const [selectedCategory, setSelectedCategory] = useState("Todos");
+  const [searchQuery, setSearchQuery] = useState("");
+  const productGroups = useMemo(
+    () =>
+      new Map(
+        products.map((product) => [
+          product.id,
+          getCategoryGroup(product.categoryName),
+        ]),
+      ),
+    [products],
+  );
 
   const categories = useMemo(() => {
-    const unique = Array.from(new Set(products.map((product) => product.categoryName)));
-    return ["Tudo", ...unique];
+    const unique = Array.from(new Set(products.map((product) => getCategoryGroup(product.categoryName))));
+    return ["Todos", ...unique];
   }, [products]);
 
-  const filteredProducts =
-    selectedCategory === "Tudo"
-      ? products
-      : products.filter((product) => product.categoryName === selectedCategory);
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const matchesCategory =
+        selectedCategory === "Todos" || productGroups.get(product.id) === selectedCategory;
+
+      if (!matchesCategory) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const searchableText = [
+        product.name,
+        product.description,
+        String(productGroups.get(product.id) ?? product.categoryName),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(normalizedSearch);
+    });
+  }, [productGroups, products, searchQuery, selectedCategory]);
 
   return (
     <ScrollView contentContainerStyle={styles.screenContent}>
@@ -436,7 +555,24 @@ function HomeScreen({
 
       <View style={styles.searchBox}>
         <Feather name="search" size={23} color={palette.muted} />
-        <Text style={styles.searchText}>Buscar produtos...</Text>
+        <TextInput
+          mode="flat"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Buscar produtos..."
+          placeholderTextColor={palette.muted}
+          underlineColor="transparent"
+          activeUnderlineColor="transparent"
+          textColor={palette.text}
+          style={styles.searchInput}
+          contentStyle={styles.searchInputContent}
+          theme={{
+            colors: {
+              background: "transparent",
+              surfaceVariant: "transparent",
+            },
+          }}
+        />
       </View>
 
       <View style={styles.promoCard}>
@@ -445,14 +581,13 @@ function HomeScreen({
           <Text style={styles.promoTitle}>20% off em hortifruti</Text>
           <Text style={styles.promoSubtitle}>Use o código FRESCO20</Text>
         </View>
-        <MaterialCommunityIcons name="leaf-maple" size={78} color="rgba(136,24,32,0.18)" />
+        <Image source={logoFullImage} style={styles.promoBrandImage} resizeMode="contain" />
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryList}>
         {categories.map((category) => {
-          const normalized = category.toLowerCase();
-          const iconName = categoryIcons[normalized] ?? "cart-outline";
           const selected = category === selectedCategory;
+          const categoryImage = categoryImages[category as CategoryPillLabel] ?? categoryImages.Todos;
 
           return (
             <Pressable
@@ -460,11 +595,7 @@ function HomeScreen({
               style={[styles.categoryPill, selected && styles.categoryPillActive]}
               onPress={() => setSelectedCategory(category)}
             >
-              <MaterialCommunityIcons
-                name={iconName as keyof typeof MaterialCommunityIcons.glyphMap}
-                size={18}
-                color={selected ? palette.onAccent : palette.muted}
-              />
+              <Image source={categoryImage} style={styles.categoryPillImage} resizeMode="contain" />
               <Text style={[styles.categoryText, selected && styles.categoryTextActive]}>
                 {category}
               </Text>
@@ -609,13 +740,13 @@ function CartScreen({ onCheckout }: { onCheckout: () => void }) {
         })}
       </View>
 
-      {cart.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Feather name="shopping-bag" size={32} color={palette.green} />
-          <Text style={styles.emptyTitle}>Seu carrinho está vazio</Text>
-          <Text style={styles.emptyText}>Adicione produtos da vitrine para finalizar um pedido.</Text>
-        </View>
-      ) : (
+        {cart.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Feather name="shopping-bag" size={32} color={palette.green} />
+            <Text style={styles.emptyTitle}>Seu carrinho está vazio</Text>
+            <Text style={styles.emptyText}>Adicione produtos da vitrine para finalizar um pedido.</Text>
+          </View>
+        ) : (
         <>
           <View style={styles.summaryCard}>
             <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} />
@@ -775,7 +906,7 @@ function CheckoutScreen({
           />
         </View>
 
-        <Text style={styles.checkoutSectionLabel}>ENDERECO</Text>
+      <Text style={styles.checkoutSectionLabel}>ENDEREÇO</Text>
         <View style={styles.addressCard}>
           <Text style={styles.addressCardTitle}>Casa</Text>
           <Text style={styles.addressCardText}>Rua das Flores, 120 - Apto 42</Text>
@@ -792,14 +923,14 @@ function CheckoutScreen({
           />
           <PaymentOption
             icon="credit-card-fast-outline"
-            title="Cartao online"
+            title="Cartão online"
             subtitle="Pague agora com Abacate Pay"
             selected={paymentMethod === "CARD_ONLINE"}
             onPress={() => setPaymentMethod("CARD_ONLINE")}
           />
           <PaymentOption
             icon="credit-card-outline"
-            title="Cartao na entrega"
+            title="Cartão na entrega"
             subtitle="Credito ou debito"
             selected={paymentMethod === "CARD_ON_DELIVERY"}
             onPress={() => setPaymentMethod("CARD_ON_DELIVERY")}
@@ -904,7 +1035,7 @@ function OrdersScreen({ onTrack }: { onTrack: () => void }) {
       {orders.map((order, index) => (
         <Pressable key={order.id} style={styles.orderCard} onPress={onTrack}>
           <View>
-            <Text style={styles.orderMeta}>#{order.id.replace("PED-", "")} · há {index === 0 ? "12 min" : "25 min"}</Text>
+            <Text style={styles.orderMeta}>#{order.id.replace("PED-", "")} • há {index === 0 ? "12 min" : "25 min"}</Text>
             <Text style={styles.orderItems}>{index + 1} item{index === 0 ? "s" : ""}</Text>
             <Text style={styles.orderTotal}>{formatCurrency(order.total)}</Text>
             <StatusBadge status={order.status} />
@@ -1010,7 +1141,7 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
         </View>
         <View style={styles.flex}>
           <Text style={styles.courierName}>João Pereira</Text>
-          <Text style={styles.profileEmail}>★ 4.9 · Entregador</Text>
+          <Text style={styles.profileEmail}>★ 4.9 • Entregador</Text>
         </View>
         <Pressable style={styles.contactButton}>
         <Feather name="phone" size={20} color={palette.onAccent} />
@@ -1025,7 +1156,7 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
         <TimelineItem icon="check" label="Pedido realizado" time="14:02" done />
         <TimelineItem icon="box" label="Em processamento" time="14:08" done />
         <TimelineItem icon="truck" label="Saiu para entrega" time="14:24" done active />
-        <TimelineItem icon="home" label="Entregue" time="—" />
+        <TimelineItem icon="home" label="Entregue" time="-" />
       </View>
     </ScrollView>
   );
@@ -1129,6 +1260,7 @@ export function AppNavigator() {
         ) : (
           <AuthScreen
             mode={publicScreen === "login" ? "login" : "register"}
+            registrationKind={publicScreen === "register-courier" ? "courier" : "customer"}
             onModeChange={setPublicScreen}
           />
         )}
@@ -1191,20 +1323,24 @@ const styles = StyleSheet.create({
   publicContent: {
     flexGrow: 1,
     paddingBottom: 28,
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: palette.backgroundSoft,
   },
   landingTop: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 2,
   },
   logoRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    marginVertical: -4,
+  },
+  logoImage: {
+    height: 104,
+    width: 268,
   },
   logoMark: {
     alignItems: "center",
@@ -1293,8 +1429,8 @@ const styles = StyleSheet.create({
   authContent: {
     flexGrow: 1,
     paddingBottom: 34,
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: palette.backgroundSoft,
   },
   backButton: {
@@ -1343,6 +1479,13 @@ const styles = StyleSheet.create({
   },
   greenText: {
     color: palette.green,
+  },
+  courierSignupButton: {
+    borderRadius: 13,
+    marginTop: 16,
+  },
+  courierSignupContent: {
+    height: 56,
   },
   demoRoles: {
     flexDirection: "row",
@@ -1442,9 +1585,15 @@ const styles = StyleSheet.create({
     marginTop: 28,
     paddingHorizontal: 18,
   },
-  searchText: {
-    color: palette.muted,
-    fontSize: 21,
+  searchInput: {
+    backgroundColor: "transparent",
+    flex: 1,
+    height: 56,
+  },
+  searchInputContent: {
+    color: palette.text,
+    fontSize: 18,
+    paddingLeft: 0,
   },
   promoCard: {
     alignItems: "center",
@@ -1455,6 +1604,11 @@ const styles = StyleSheet.create({
     marginTop: 22,
     overflow: "hidden",
     padding: 26,
+  },
+  promoBrandImage: {
+    height: 56,
+    opacity: 0.9,
+    width: 146,
   },
   promoKicker: {
     color: palette.onAccent,
@@ -1483,17 +1637,22 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 22,
-    paddingVertical: 13,
+    gap: 8,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   categoryPillActive: {
     backgroundColor: palette.green,
     borderColor: palette.green,
   },
+  categoryPillImage: {
+    height: 22,
+    width: 22,
+  },
   categoryText: {
     color: palette.muted,
-    fontSize: 16,
+    fontSize: 15,
   },
   categoryTextActive: {
     color: palette.onAccent,
@@ -2291,5 +2450,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
 
 

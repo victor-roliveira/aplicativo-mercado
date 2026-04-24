@@ -35,6 +35,8 @@ create table if not exists public.profiles (
   full_name text not null,
   cpf text,
   phone text,
+  vehicle_plate text,
+  driver_license text,
   role public.app_role not null default 'CUSTOMER',
   is_active boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
@@ -217,13 +219,19 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, full_name, cpf, phone, role)
+  insert into public.profiles (id, full_name, cpf, phone, vehicle_plate, driver_license, role)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', 'Novo usuario'),
     new.raw_user_meta_data ->> 'cpf',
     new.raw_user_meta_data ->> 'phone',
-    'CUSTOMER'
+    new.raw_user_meta_data ->> 'vehicle_plate',
+    new.raw_user_meta_data ->> 'driver_license',
+    case
+      when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
+        then 'COURIER'::public.app_role
+      else 'CUSTOMER'::public.app_role
+    end
   )
   on conflict (id) do nothing;
 

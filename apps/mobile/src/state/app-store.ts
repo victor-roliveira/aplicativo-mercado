@@ -11,7 +11,7 @@ import {
   removeCartItem as removeRemoteCartItem,
   signInWithPassword,
   signOut as signOutRemote,
-  signUpCustomer,
+  signUpAccount,
   type AuthForm,
   type CartLine,
   type OrderCard,
@@ -28,7 +28,6 @@ type AppState = {
   isAuthenticated: boolean;
   statusMessage?: string;
   errorMessage?: string;
-  setActiveRole: (role: AppRole) => void;
   bootstrap: () => Promise<void>;
   refreshCatalog: () => Promise<void>;
   refreshCart: () => Promise<void>;
@@ -104,7 +103,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   orders: [],
   isLoading: false,
   isAuthenticated: false,
-  setActiveRole: (role) => set({ activeRole: role }),
   clearFeedback: () => set({ errorMessage: undefined, statusMessage: undefined }),
   bootstrap: async () => {
     set({ isLoading: true, errorMessage: undefined });
@@ -171,7 +169,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await signInWithPassword(form);
       await get().bootstrap();
-      set({ statusMessage: "Login realizado com sucesso." });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });
     }
@@ -180,14 +177,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
 
     try {
-      const result = await signUpCustomer(form);
+      const accountRole = form.accountRole ?? "CUSTOMER";
+
+      if (!form.fullName?.trim()) {
+        throw new Error("Informe seu nome completo.");
+      }
+
+      if (!form.cpf?.trim()) {
+        throw new Error("Informe seu CPF.");
+      }
+
+      if (accountRole === "COURIER") {
+        if (!form.vehiclePlate?.trim()) {
+          throw new Error("Informe a placa do veiculo.");
+        }
+
+        if (!form.driverLicense?.trim()) {
+          throw new Error("Informe a CNH.");
+        }
+      }
+
+      const result = await signUpAccount(form);
 
       if (!result.hasSession) {
         set({
           profile: null,
           cart: [],
           orders: [],
-          activeRole: "CUSTOMER",
+          activeRole: accountRole,
           isAuthenticated: false,
           isLoading: false,
           statusMessage:
@@ -217,7 +234,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeRole: "CUSTOMER",
         isAuthenticated: false,
         isLoading: false,
-        statusMessage: "Sessao encerrada.",
       });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });

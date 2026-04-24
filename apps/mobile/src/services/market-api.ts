@@ -7,6 +7,9 @@ export type AuthForm = {
   fullName?: string;
   cpf?: string;
   phone?: string;
+  accountRole?: Extract<AppRole, "CUSTOMER" | "COURIER">;
+  vehiclePlate?: string;
+  driverLicense?: string;
 };
 
 export type Profile = {
@@ -14,6 +17,8 @@ export type Profile = {
   fullName: string;
   role: AppRole;
   email?: string;
+  vehiclePlate?: string;
+  driverLicense?: string;
 };
 
 export type CartLine = {
@@ -103,7 +108,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, role")
+    .select("id, full_name, role, vehicle_plate, driver_license")
     .eq("id", user.id)
     .single();
 
@@ -116,6 +121,8 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     fullName: data.full_name,
     role: data.role,
     email: user.email,
+    vehiclePlate: data.vehicle_plate ?? undefined,
+    driverLicense: data.driver_license ?? undefined,
   };
 }
 
@@ -128,12 +135,15 @@ export async function signInWithPassword({ email, password }: AuthForm) {
   }
 }
 
-export async function signUpCustomer({
+export async function signUpAccount({
   email,
   password,
   fullName,
   cpf,
   phone,
+  accountRole,
+  vehiclePlate,
+  driverLicense,
 }: AuthForm) {
   const client = getClient();
   const { data, error } = await client.auth.signUp({
@@ -144,6 +154,9 @@ export async function signUpCustomer({
         full_name: fullName,
         cpf,
         phone,
+        requested_role: accountRole ?? "CUSTOMER",
+        vehicle_plate: vehiclePlate,
+        driver_license: driverLicense,
       },
     },
   });
