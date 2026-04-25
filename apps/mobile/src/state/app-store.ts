@@ -1,17 +1,23 @@
 import { create } from "zustand";
-import type { AppRole, DeliveryMode, PaymentMethod, ProductSummary } from "@mercado/shared/domain/models";
+import type { AddressRecord, AppRole, DeliveryMode, PaymentMethod, ProductSummary } from "@mercado/shared/domain/models";
 import {
   addProductToCart as addProductToRemoteCart,
   checkoutCart,
+  createAddress as createRemoteAddress,
+  deleteAddress as deleteRemoteAddress,
   decrementCartItem as decrementRemoteCartItem,
+  fetchAddresses,
   fetchCartItems,
   fetchOrders,
   fetchProducts,
   getCurrentProfile,
+  markAddressAsLastUsed as markRemoteAddressAsLastUsed,
   removeCartItem as removeRemoteCartItem,
   signInWithPassword,
   signOut as signOutRemote,
   signUpAccount,
+  updateAddress as updateRemoteAddress,
+  type AddressFormData,
   type AuthForm,
   type CartLine,
   type OrderCard,
@@ -21,6 +27,7 @@ import {
 type AppState = {
   activeRole: AppRole;
   profile: Profile | null;
+  addresses: AddressRecord[];
   products: ProductSummary[];
   cart: CartLine[];
   orders: OrderCard[];
@@ -30,11 +37,16 @@ type AppState = {
   errorMessage?: string;
   bootstrap: () => Promise<void>;
   refreshCatalog: () => Promise<void>;
+  refreshAddresses: () => Promise<void>;
   refreshCart: () => Promise<void>;
   refreshOrders: () => Promise<void>;
   signIn: (form: AuthForm) => Promise<void>;
   signUp: (form: AuthForm) => Promise<void>;
   signOut: () => Promise<void>;
+  createAddress: (input: AddressFormData) => Promise<void>;
+  updateAddress: (addressId: string, input: AddressFormData) => Promise<void>;
+  deleteAddress: (addressId: string) => Promise<void>;
+  markAddressAsLastUsed: (addressId: string) => Promise<void>;
   addToCart: (product: ProductSummary) => Promise<void>;
   decrementCartItem: (productId: string) => Promise<void>;
   removeCartItem: (productId: string) => Promise<void>;
@@ -52,6 +64,105 @@ const demoProducts: ProductSummary[] = [
     discountInCents: 100,
     availableQuantity: 32,
     imageUrl: "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-tomate",
+    name: "Tomate italiano",
+    description: "Tomate fresco para saladas e molhos.",
+    categoryName: "Frutas e Verduras",
+    priceInCents: 1290,
+    discountInCents: 190,
+    availableQuantity: 24,
+    imageUrl: "https://images.unsplash.com/photo-1546470427-e26264be0b0d",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-picanha",
+    name: "Picanha premium",
+    description: "Corte nobre com marmoreio equilibrado.",
+    categoryName: "Proteínas",
+    priceInCents: 8990,
+    discountInCents: 1000,
+    availableQuantity: 10,
+    imageUrl: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-frango",
+    name: "Peito de frango",
+    description: "Bandeja resfriada, ideal para o dia a dia.",
+    categoryName: "Proteínas",
+    priceInCents: 2590,
+    discountInCents: 0,
+    availableQuantity: 18,
+    imageUrl: "https://images.unsplash.com/photo-1604503468506-a8da13d82791",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-salmao",
+    name: "Filé de salmão",
+    description: "Peixe fresco com corte alto.",
+    categoryName: "Proteínas",
+    priceInCents: 5990,
+    discountInCents: 450,
+    availableQuantity: 8,
+    imageUrl: "https://images.unsplash.com/photo-1544943910-4c1dc44aab44",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-leite",
+    name: "Leite integral 1L",
+    description: "Leite integral gelado e pronto para consumo.",
+    categoryName: "Laticínios",
+    priceInCents: 649,
+    discountInCents: 0,
+    availableQuantity: 42,
+    imageUrl: "https://images.unsplash.com/photo-1563636619-e9143da7973b",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-iogurte",
+    name: "Iogurte natural",
+    description: "Pote cremoso ideal para café da manhã.",
+    categoryName: "Laticínios",
+    priceInCents: 899,
+    discountInCents: 90,
+    availableQuantity: 20,
+    imageUrl: "https://images.unsplash.com/photo-1571212515416-fef01fc43637",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-manteiga",
+    name: "Manteiga com sal",
+    description: "Textura cremosa para pães e receitas.",
+    categoryName: "Laticínios",
+    priceInCents: 1390,
+    discountInCents: 150,
+    availableQuantity: 16,
+    imageUrl: "https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-queijo",
+    name: "Queijo mussarela",
+    description: "Peça fresca para lanches e receitas.",
+    categoryName: "Frios",
+    priceInCents: 4290,
+    discountInCents: 0,
+    availableQuantity: 14,
+    imageUrl: "https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d",
+    isAvailable: true,
+  },
+  {
+    id: "prod-demo-suco",
+    name: "Suco de laranja 1L",
+    description: "Suco integral gelado e refrescante.",
+    categoryName: "Bebidas",
+    priceInCents: 1290,
+    discountInCents: 0,
+    availableQuantity: 27,
+    imageUrl: "https://images.unsplash.com/photo-1600271886742-f049cd451bba",
     isAvailable: true,
   },
 ];
@@ -98,6 +209,7 @@ function getErrorMessage(error: unknown) {
 export const useAppStore = create<AppState>((set, get) => ({
   activeRole: "CUSTOMER",
   profile: null,
+  addresses: [],
   products: demoProducts,
   cart: [],
   orders: [],
@@ -109,14 +221,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const profile = await getCurrentProfile();
-      const products = await fetchProducts();
+      const productsResponse = await fetchProducts();
+      const products = productsResponse.length > 0 ? productsResponse : demoProducts;
       const isAuthenticated = Boolean(profile);
-      const [cart, orders] = isAuthenticated
-        ? await Promise.all([fetchCartItems(), fetchOrders()])
-        : [[], []];
+      const [addresses, cart, orders] = isAuthenticated
+        ? await Promise.all([fetchAddresses(), fetchCartItems(), fetchOrders()])
+        : [[], [], []];
 
       set({
         profile,
+        addresses,
         products,
         cart,
         orders,
@@ -133,8 +247,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   refreshCatalog: async () => {
     try {
-      const products = await fetchProducts();
+      const productsResponse = await fetchProducts();
+      const products = productsResponse.length > 0 ? productsResponse : demoProducts;
       set({ products });
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+    }
+  },
+  refreshAddresses: async () => {
+    if (!get().isAuthenticated) {
+      return;
+    }
+
+    try {
+      const addresses = await fetchAddresses();
+      set({ addresses });
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
     }
@@ -187,6 +314,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw new Error("Informe seu CPF.");
       }
 
+      if (!form.phone?.trim()) {
+        throw new Error("Informe seu telefone.");
+      }
+
       if (accountRole === "COURIER") {
         if (!form.vehiclePlate?.trim()) {
           throw new Error("Informe a placa do veiculo.");
@@ -229,6 +360,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await signOutRemote();
       set({
         profile: null,
+        addresses: [],
         cart: [],
         orders: [],
         activeRole: "CUSTOMER",
@@ -245,6 +377,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const cart = await addProductToRemoteCart(product);
       set({ cart, isLoading: false, statusMessage: "Produto adicionado ao carrinho." });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  createAddress: async (input) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const addresses = await createRemoteAddress(input);
+      set({ addresses, isLoading: false, statusMessage: "Endereço adicionado com sucesso." });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  updateAddress: async (addressId, input) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const addresses = await updateRemoteAddress(addressId, input);
+      set({ addresses, isLoading: false, statusMessage: "Endereço atualizado com sucesso." });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  deleteAddress: async (addressId) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const addresses = await deleteRemoteAddress(addressId);
+      set({ addresses, isLoading: false, statusMessage: "Endereço removido com sucesso." });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  markAddressAsLastUsed: async (addressId) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      const addresses = await markRemoteAddressAsLastUsed(addressId);
+      set({ addresses, isLoading: false, statusMessage: "Endereço definido como último utilizado." });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });
     }

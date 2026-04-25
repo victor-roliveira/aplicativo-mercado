@@ -1,4 +1,11 @@
-import type { AppRole, DeliveryMode, OrderStatus, PaymentMethod, ProductSummary } from "@mercado/shared/domain/models";
+import type {
+  AddressRecord,
+  AppRole,
+  DeliveryMode,
+  OrderStatus,
+  PaymentMethod,
+  ProductSummary,
+} from "@mercado/shared/domain/models";
 import { supabase } from "./supabase";
 
 export type AuthForm = {
@@ -17,6 +24,9 @@ export type Profile = {
   fullName: string;
   role: AppRole;
   email?: string;
+  phone?: string;
+  avatarUrl?: string;
+  rating?: number;
   vehiclePlate?: string;
   driverLicense?: string;
 };
@@ -35,7 +45,25 @@ export type OrderCard = {
   paymentMethod: PaymentMethod;
   deliveryMode: DeliveryMode;
   confirmationCode?: string;
+  rawOrderId: string;
+  placedAt?: string;
+  processingAt?: string;
+  outForDeliveryAt?: string;
+  deliveredAt?: string;
   assignedCourierName?: string;
+  assignedCourierAvatarUrl?: string;
+  assignedCourierRating?: number;
+};
+
+export type AddressFormData = {
+  label: string;
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  zipCode: string;
 };
 
 type ProductRow = {
@@ -69,6 +97,35 @@ type OrderRow = {
   payment_method: PaymentMethod;
   delivery_mode: DeliveryMode;
   assigned_courier_id: string | null;
+  placed_at: string;
+  processing_at: string | null;
+  out_for_delivery_at: string | null;
+  delivered_at: string | null;
+  assigned_courier?: {
+    full_name: string;
+    avatar_url: string | null;
+    rating: number | null;
+  } | {
+    full_name: string;
+    avatar_url: string | null;
+    rating: number | null;
+  }[] | null;
+};
+
+type AddressRow = {
+  id: string;
+  user_id: string;
+  label: string;
+  street: string;
+  number: string;
+  complement: string | null;
+  neighborhood: string;
+  city: string;
+  state: string;
+  zip_code: string;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 function getClient() {
@@ -85,6 +142,24 @@ function firstRelation<T>(relation: T | T[] | null | undefined): T | null {
   }
 
   return Array.isArray(relation) ? relation[0] ?? null : relation;
+}
+
+function mapAddressRow(address: AddressRow): AddressRecord {
+  return {
+    id: address.id,
+    userId: address.user_id,
+    label: address.label,
+    street: address.street,
+    number: address.number,
+    complement: address.complement ?? undefined,
+    neighborhood: address.neighborhood,
+    city: address.city,
+    state: address.state,
+    zipCode: address.zip_code,
+    lastUsedAt: address.last_used_at ?? undefined,
+    createdAt: address.created_at,
+    updatedAt: address.updated_at,
+  };
 }
 
 export async function getCurrentProfile(): Promise<Profile | null> {
@@ -108,7 +183,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, role, vehicle_plate, driver_license")
+    .select("id, full_name, role, phone, avatar_url, rating, vehicle_plate, driver_license")
     .eq("id", user.id)
     .single();
 
@@ -121,6 +196,9 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     fullName: data.full_name,
     role: data.role,
     email: user.email,
+    phone: data.phone ?? undefined,
+    avatarUrl: data.avatar_url ?? undefined,
+    rating: data.rating ?? undefined,
     vehiclePlate: data.vehicle_plate ?? undefined,
     driverLicense: data.driver_license ?? undefined,
   };
@@ -177,6 +255,115 @@ export async function signOut() {
   if (error) {
     throw error;
   }
+}
+
+export async function fetchAddresses(): Promise<AddressRecord[]> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("addresses")
+    .select("id, user_id, label, street, number, complement, neighborhood, city, state, zip_code, last_used_at, created_at, updated_at")
+    .order("last_used_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as AddressRow[]).map(mapAddressRow);
+}
+
+export async function createAddress(input: AddressFormData): Promise<AddressRecord[]> {
+  const client = getClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await client.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    throw new Error("Entre novamente para gerenciar seus endereços.");
+  }
+
+  const currentAddresses = await fetchAddresses();
+  const payload = {
+    user_id: user.id,
+    label: input.label.trim(),
+    street: input.street.trim(),
+    number: input.number.trim(),
+    complement: input.complement?.trim() || null,
+    neighborhood: input.neighborhood.trim(),
+    city: input.city.trim(),
+    state: input.state.trim().toUpperCase(),
+    zip_code: input.zipCode.trim(),
+    last_used_at: currentAddresses.length === 0 ? new Date().toISOString() : null,
+  };
+
+  const { error } = await client.from("addresses").insert(payload);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchAddresses();
+}
+
+export async function updateAddress(
+  addressId: string,
+  input: AddressFormData,
+): Promise<AddressRecord[]> {
+  const client = getClient();
+  const { error } = await client
+    .from("addresses")
+    .update({
+      label: input.label.trim(),
+      street: input.street.trim(),
+      number: input.number.trim(),
+      complement: input.complement?.trim() || null,
+      neighborhood: input.neighborhood.trim(),
+      city: input.city.trim(),
+      state: input.state.trim().toUpperCase(),
+      zip_code: input.zipCode.trim(),
+    })
+    .eq("id", addressId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchAddresses();
+}
+
+export async function markAddressAsLastUsed(addressId: string): Promise<AddressRecord[]> {
+  const client = getClient();
+  const { error } = await client.rpc("mark_address_last_used", {
+    p_address_id: addressId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchAddresses();
+}
+
+export async function deleteAddress(addressId: string): Promise<AddressRecord[]> {
+  const client = getClient();
+  const { error } = await client.from("addresses").delete().eq("id", addressId);
+
+  if (error) {
+    throw error;
+  }
+
+  const addresses = await fetchAddresses();
+
+  if (addresses.length > 0 && !addresses.some((address) => address.lastUsedAt)) {
+    return markAddressAsLastUsed(addresses[0].id);
+  }
+
+  return addresses;
 }
 
 export function subscribeToAuthChanges(onChange: () => void) {
@@ -418,7 +605,7 @@ export async function fetchOrders(): Promise<OrderCard[]> {
   const client = getClient();
   const { data, error } = await client
     .from("orders")
-    .select("id, order_number, status, total_in_cents, payment_method, delivery_mode, assigned_courier_id")
+    .select("id, order_number, status, total_in_cents, payment_method, delivery_mode, assigned_courier_id, placed_at, processing_at, out_for_delivery_at, delivered_at, assigned_courier:profiles!orders_assigned_courier_id_fkey(full_name, avatar_url, rating)")
     .order("placed_at", { ascending: false })
     .limit(20);
 
@@ -445,10 +632,18 @@ export async function fetchOrders(): Promise<OrderCard[]> {
 
   return orders.map((order) => ({
     id: order.order_number ? `PED-${order.order_number}` : order.id.slice(0, 8).toUpperCase(),
+    rawOrderId: order.id,
     status: order.status,
     total: order.total_in_cents,
     paymentMethod: order.payment_method,
     deliveryMode: order.delivery_mode,
     confirmationCode: deliveryCodes.get(order.id),
+    placedAt: order.placed_at,
+    processingAt: order.processing_at ?? undefined,
+    outForDeliveryAt: order.out_for_delivery_at ?? undefined,
+    deliveredAt: order.delivered_at ?? undefined,
+    assignedCourierName: firstRelation(order.assigned_courier)?.full_name ?? undefined,
+    assignedCourierAvatarUrl: firstRelation(order.assigned_courier)?.avatar_url ?? undefined,
+    assignedCourierRating: firstRelation(order.assigned_courier)?.rating ?? undefined,
   }));
 }

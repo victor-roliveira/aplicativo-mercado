@@ -66,7 +66,7 @@ begin
     v_discount_total := v_discount_total + (v_item.discount_in_cents * v_item.quantity);
   end loop;
 
-  v_code := right(regexp_replace(coalesce((select cpf from public.profiles where id = v_customer_id), '0000'), '\D', '', 'g'), 4);
+  v_code := right(regexp_replace(coalesce((select phone from public.profiles where id = v_customer_id), '0000'), '\D', '', 'g'), 4);
 
   insert into public.orders (
     customer_id,

@@ -8,16 +8,25 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, { FadeInUp } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { Button, Chip, Text, TextInput } from "react-native-paper";
 import type {
+  AddressRecord,
   AppRole,
   DeliveryMode,
   OrderStatus,
   PaymentMethod,
   ProductSummary,
 } from "@mercado/shared/domain/models";
-import { subscribeToAuthChanges } from "../services/market-api";
+import { subscribeToAuthChanges, type AddressFormData } from "../services/market-api";
 import { useOrderRealtime } from "../services/use-order-realtime";
 import { useAppStore } from "../state/app-store";
 
@@ -89,7 +98,8 @@ function getCategoryGroup(categoryName: string): CategoryPillLabel | string {
     normalized.includes("hortifruti") ||
     normalized.includes("fruta") ||
     normalized.includes("verdura") ||
-    normalized.includes("legume")
+    normalized.includes("legume") ||
+    normalized.includes("mercearia")
   ) {
     return "Frutas e Verduras";
   }
@@ -154,6 +164,38 @@ function getEffectivePrice(product: ProductSummary) {
   return product.priceInCents - product.discountInCents;
 }
 
+function getPrimaryAddress(addresses: AddressRecord[]) {
+  return addresses[0];
+}
+
+function formatAddressLine(address?: AddressRecord | null) {
+  if (!address) {
+    return "Cadastre um endereço para receber em casa.";
+  }
+
+  const complement = address.complement?.trim() ? ` - ${address.complement.trim()}` : "";
+  return `${address.street}, ${address.number}${complement}`;
+}
+
+function formatAddressLocation(address?: AddressRecord | null) {
+  if (!address) {
+    return "Você pode adicionar e editar endereços no seu perfil.";
+  }
+
+  return `${address.neighborhood} - ${address.city}/${address.state}`;
+}
+
+function formatOrderTime(value?: string) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function Logo() {
   return (
     <View style={styles.logoRow}>
@@ -200,6 +242,7 @@ function AppInput({
   placeholder,
   secureTextEntry,
   keyboardType,
+  autoCapitalize = "none",
   onChangeText,
 }: {
   label: string;
@@ -208,6 +251,7 @@ function AppInput({
   placeholder: string;
   secureTextEntry?: boolean;
   keyboardType?: "default" | "email-address" | "number-pad" | "phone-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
   onChangeText: (value: string) => void;
 }) {
   return (
@@ -220,7 +264,7 @@ function AppInput({
         placeholderTextColor={palette.muted}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
-        autoCapitalize="none"
+        autoCapitalize={autoCapitalize}
         left={<TextInput.Icon icon={() => <Feather name={icon} size={20} color={palette.muted} />} />}
         outlineColor={palette.border}
         activeOutlineColor={palette.green}
@@ -237,6 +281,16 @@ function FeedbackBar() {
   const errorMessage = useAppStore((state) => state.errorMessage);
   const statusMessage = useAppStore((state) => state.statusMessage);
   const clearFeedback = useAppStore((state) => state.clearFeedback);
+
+  useEffect(() => {
+    if (!errorMessage && !statusMessage) {
+      return undefined;
+    }
+
+    const timeout = setTimeout(clearFeedback, errorMessage ? 3500 : 2500);
+
+    return () => clearTimeout(timeout);
+  }, [clearFeedback, errorMessage, statusMessage]);
 
   if (!errorMessage && !statusMessage) {
     return null;
@@ -384,7 +438,7 @@ function AuthScreen({
               keyboardType="number-pad"
               onChangeText={(value) => updateForm("cpf", value)}
             />
-            <Text style={styles.inputHint}>Os 4 últimos dígitos serão seu código de entrega</Text>
+            <Text style={styles.inputHint}>Os 4 últimos dígitos do telefone serão seu código de entrega</Text>
             {isCourierRegistration ? (
               <>
                 <AppInput
@@ -488,12 +542,16 @@ function HomeScreen({
   onCart: () => void;
   onProduct: (productId: string) => void;
 }) {
+  const addresses = useAppStore((state) => state.addresses);
   const products = useAppStore((state) => state.products);
   const cart = useAppStore((state) => state.cart);
   const isLoading = useAppStore((state) => state.isLoading);
   const addToCart = useAppStore((state) => state.addToCart);
+  const markAddressAsLastUsed = useAppStore((state) => state.markAddressAsLastUsed);
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isAddressSelectorOpen, setIsAddressSelectorOpen] = useState(false);
+  const primaryAddress = getPrimaryAddress(addresses);
   const productGroups = useMemo(
     () =>
       new Map(
@@ -540,18 +598,71 @@ function HomeScreen({
   return (
     <ScrollView contentContainerStyle={styles.screenContent}>
       <View style={styles.homeHeader}>
-        <View>
+        <Pressable
+          style={styles.homeAddressTrigger}
+          onPress={() => setIsAddressSelectorOpen((current) => !current)}
+        >
           <Text style={styles.mutedSmall}>Entregar em</Text>
           <View style={styles.addressRow}>
             <Feather name="map-pin" size={18} color={palette.green} />
-            <Text style={styles.addressText}>Rua das Flores, 120</Text>
+            <Text style={styles.addressText}>
+              {primaryAddress ? formatAddressLine(primaryAddress) : "Escolher endereço"}
+            </Text>
+            <Feather
+              name={isAddressSelectorOpen ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={palette.muted}
+            />
           </View>
-        </View>
+          <Text style={styles.addressCaption}>
+            {primaryAddress ? formatAddressLocation(primaryAddress) : "Selecione um endereço cadastrado"}
+          </Text>
+        </Pressable>
         <Pressable style={styles.notificationButton}>
           <Feather name="bell" size={22} color={palette.text} />
           <View style={styles.notificationDot} />
         </Pressable>
       </View>
+
+      {isAddressSelectorOpen ? (
+        <View style={styles.homeAddressSelector}>
+          {addresses.length > 0 ? (
+            addresses.map((address) => {
+              const isSelected = address.id === primaryAddress?.id;
+
+              return (
+                <Pressable
+                  key={address.id}
+                  style={[
+                    styles.homeAddressOption,
+                    isSelected && styles.homeAddressOptionActive,
+                  ]}
+                  onPress={() => {
+                    if (!isSelected) {
+                      void markAddressAsLastUsed(address.id);
+                    }
+                    setIsAddressSelectorOpen(false);
+                  }}
+                >
+                  <View style={styles.homeAddressOptionInfo}>
+                    <Text style={styles.homeAddressOptionTitle}>{address.label}</Text>
+                    <Text style={styles.homeAddressOptionText}>{formatAddressLine(address)}</Text>
+                    <Text style={styles.homeAddressOptionSubtext}>{formatAddressLocation(address)}</Text>
+                  </View>
+                  {isSelected ? <Feather name="check" size={18} color={palette.green} /> : null}
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={styles.homeAddressEmpty}>
+              <Text style={styles.homeAddressEmptyTitle}>Nenhum endereço cadastrado</Text>
+              <Text style={styles.homeAddressEmptyText}>
+                Adicione um endereço no perfil para escolher onde deseja receber.
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : null}
 
       <View style={styles.searchBox}>
         <Feather name="search" size={23} color={palette.muted} />
@@ -861,11 +972,13 @@ function CheckoutScreen({
   onBack: () => void;
   onCompleted: () => void;
 }) {
+  const addresses = useAppStore((state) => state.addresses);
   const cart = useAppStore((state) => state.cart);
   const checkout = useAppStore((state) => state.checkout);
   const isLoading = useAppStore((state) => state.isLoading);
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("DELIVERY");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PIX");
+  const primaryAddress = getPrimaryAddress(addresses);
   const subtotal = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   const deliveryFee = deliveryMode === "DELIVERY" && cart.length > 0 ? 1200 : 0;
   const total = subtotal + deliveryFee;
@@ -908,8 +1021,15 @@ function CheckoutScreen({
 
       <Text style={styles.checkoutSectionLabel}>ENDEREÇO</Text>
         <View style={styles.addressCard}>
-          <Text style={styles.addressCardTitle}>Casa</Text>
-          <Text style={styles.addressCardText}>Rua das Flores, 120 - Apto 42</Text>
+          <Text style={styles.addressCardTitle}>
+            {deliveryMode === "PICKUP" ? "Retirada no local" : primaryAddress?.label ?? "Sem endereço"}
+          </Text>
+          <Text style={styles.addressCardText}>
+            {deliveryMode === "PICKUP" ? "Você poderá retirar seu pedido na loja." : formatAddressLine(primaryAddress)}
+          </Text>
+          <Text style={styles.addressCardSubtext}>
+            {deliveryMode === "PICKUP" ? "Endereço não é necessário para esta opção." : formatAddressLocation(primaryAddress)}
+          </Text>
         </View>
 
         <Text style={styles.checkoutSectionLabel}>PAGAMENTO</Text>
@@ -953,7 +1073,7 @@ function CheckoutScreen({
         <Button
           mode="contained"
           loading={isLoading}
-          disabled={isLoading || cart.length === 0}
+          disabled={isLoading || cart.length === 0 || (deliveryMode === "DELIVERY" && !primaryAddress)}
           buttonColor={palette.green}
           textColor={palette.onAccent}
           style={styles.checkoutButton}
@@ -1066,7 +1186,293 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   );
 }
 
-function ProfileScreen() {
+function AddressesScreen({ onBack }: { onBack: () => void }) {
+  const addresses = useAppStore((state) => state.addresses);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const createAddress = useAppStore((state) => state.createAddress);
+  const updateAddress = useAppStore((state) => state.updateAddress);
+  const deleteAddress = useAppStore((state) => state.deleteAddress);
+  const markAddressAsLastUsed = useAppStore((state) => state.markAddressAsLastUsed);
+  const [editingAddressId, setEditingAddressId] = useState<string>();
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [form, setForm] = useState<AddressFormData>({
+    label: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+    zipCode: "",
+  });
+
+  const resetForm = () => {
+    setForm({
+      label: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+      zipCode: "",
+    });
+    setEditingAddressId(undefined);
+    setIsFormOpen(false);
+  };
+
+  const openCreateForm = () => {
+    setEditingAddressId(undefined);
+    setForm({
+      label: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+      zipCode: "",
+    });
+    setIsFormOpen(true);
+  };
+
+  const openEditForm = (address: AddressRecord) => {
+    setEditingAddressId(address.id);
+    setForm({
+      label: address.label,
+      street: address.street,
+      number: address.number,
+      complement: address.complement ?? "",
+      neighborhood: address.neighborhood,
+      city: address.city,
+      state: address.state,
+      zipCode: address.zipCode,
+    });
+    setIsFormOpen(true);
+  };
+
+  const updateField = (field: keyof AddressFormData, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleSubmit = async () => {
+    if (!form.label.trim() || !form.street.trim() || !form.number.trim() || !form.neighborhood.trim() || !form.city.trim() || !form.state.trim() || !form.zipCode.trim()) {
+      useAppStore.setState({ errorMessage: "Preencha os campos obrigatórios do endereço." });
+      return;
+    }
+
+    if (editingAddressId) {
+      await updateAddress(editingAddressId, form);
+    } else {
+      await createAddress(form);
+    }
+
+    if (!useAppStore.getState().errorMessage) {
+      resetForm();
+    }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.screenContent}>
+      <View style={styles.checkoutHeader}>
+        <Pressable style={styles.backCircle} onPress={onBack}>
+          <Feather name="arrow-left" size={22} color={palette.text} />
+        </Pressable>
+        <Text style={styles.screenTitleCompact}>Endereços</Text>
+      </View>
+
+      <Text style={styles.mutedText}>Gerencie seus endereços de entrega e retirada.</Text>
+
+      <Button
+        mode="contained"
+        buttonColor={palette.green}
+        textColor={palette.onAccent}
+        style={styles.addressPrimaryButton}
+        contentStyle={styles.addressPrimaryButtonContent}
+        labelStyle={styles.primaryButtonLabel}
+        icon={({ color, size }) => <Feather name="plus" color={color} size={size} />}
+        onPress={openCreateForm}
+      >
+        Adicionar endereço
+      </Button>
+
+      {isFormOpen ? (
+        <View style={styles.addressEditorCard}>
+          <Text style={styles.addressEditorTitle}>
+            {editingAddressId ? "Editar endereço" : "Novo endereço"}
+          </Text>
+          <View style={styles.addressFormGrid}>
+            <AppInput
+              label="Apelido"
+              icon="map-pin"
+              value={form.label}
+              placeholder="Casa"
+              autoCapitalize="words"
+              onChangeText={(value) => updateField("label", value)}
+            />
+            <AppInput
+              label="Rua"
+              icon="navigation"
+              value={form.street}
+              placeholder="Rua das Flores"
+              autoCapitalize="words"
+              onChangeText={(value) => updateField("street", value)}
+            />
+            <AppInput
+              label="Número"
+              icon="hash"
+              value={form.number}
+              placeholder="120"
+              onChangeText={(value) => updateField("number", value)}
+            />
+            <AppInput
+              label="Complemento"
+              icon="home"
+              value={form.complement ?? ""}
+              placeholder="Apto 42"
+              autoCapitalize="words"
+              onChangeText={(value) => updateField("complement", value)}
+            />
+            <AppInput
+              label="Bairro"
+              icon="map"
+              value={form.neighborhood}
+              placeholder="Centro"
+              autoCapitalize="words"
+              onChangeText={(value) => updateField("neighborhood", value)}
+            />
+            <AppInput
+              label="Cidade"
+              icon="map"
+              value={form.city}
+              placeholder="São Paulo"
+              autoCapitalize="words"
+              onChangeText={(value) => updateField("city", value)}
+            />
+            <View style={styles.addressFormRow}>
+              <View style={styles.addressFormSmallField}>
+                <AppInput
+                  label="UF"
+                  icon="flag"
+                  value={form.state}
+                  placeholder="SP"
+                  autoCapitalize="characters"
+                  onChangeText={(value) => updateField("state", value)}
+                />
+              </View>
+              <View style={styles.flex}>
+                <AppInput
+                  label="CEP"
+                  icon="mail"
+                  value={form.zipCode}
+                  placeholder="00000-000"
+                  keyboardType="number-pad"
+                  onChangeText={(value) => updateField("zipCode", value)}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.addressEditorActions}>
+            <Button
+              mode="contained-tonal"
+              buttonColor={palette.cardSoft}
+              textColor={palette.text}
+              style={styles.addressSecondaryButton}
+              contentStyle={styles.addressSecondaryButtonContent}
+              onPress={resetForm}
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              loading={isLoading}
+              disabled={isLoading}
+              buttonColor={palette.green}
+              textColor={palette.onAccent}
+              style={styles.addressSaveButton}
+              contentStyle={styles.addressSecondaryButtonContent}
+              onPress={() => void handleSubmit()}
+            >
+              {editingAddressId ? "Salvar" : "Adicionar"}
+            </Button>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.addressList}>
+        {addresses.map((address) => {
+          const isLastUsed = address.id === getPrimaryAddress(addresses)?.id;
+
+          return (
+            <View
+              key={address.id}
+              style={[
+                styles.userAddressCard,
+                isLastUsed ? styles.userAddressCardActive : styles.userAddressCardInactive,
+              ]}
+            >
+              <View style={styles.addressCardHeader}>
+                <View style={styles.addressCardInfo}>
+                  <Text style={styles.addressCardTitle}>{address.label}</Text>
+                  <Text style={styles.addressCardText}>{formatAddressLine(address)}</Text>
+                  <Text style={styles.addressCardSubtext}>{formatAddressLocation(address)}</Text>
+                </View>
+                {isLastUsed ? (
+                  <View style={styles.lastUsedBadge}>
+                    <Text style={styles.lastUsedBadgeText}>Último utilizado</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <Text style={styles.addressZipText}>CEP {address.zipCode}</Text>
+
+              <View style={styles.addressActionRow}>
+                {!isLastUsed ? (
+                  <Button
+                    mode="contained-tonal"
+                    buttonColor={palette.cardSoft}
+                    textColor={palette.text}
+                    compact
+                    onPress={() => void markAddressAsLastUsed(address.id)}
+                  >
+                    Usar este
+                  </Button>
+                ) : null}
+                <Button
+                  mode="text"
+                  compact
+                  textColor={palette.text}
+                  onPress={() => openEditForm(address)}
+                >
+                  Editar
+                </Button>
+                <Button
+                  mode="text"
+                  compact
+                  textColor={palette.danger}
+                  onPress={() => void deleteAddress(address.id)}
+                >
+                  Excluir
+                </Button>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+
+      {addresses.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Feather name="map-pin" size={32} color={palette.green} />
+          <Text style={styles.emptyTitle}>Nenhum endereço cadastrado</Text>
+          <Text style={styles.emptyText}>Adicione seu primeiro endereço para facilitar o checkout.</Text>
+        </View>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+function ProfileScreen({ onOpenAddresses }: { onOpenAddresses: () => void }) {
   const profile = useAppStore((state) => state.profile);
   const signOut = useAppStore((state) => state.signOut);
 
@@ -1086,7 +1492,7 @@ function ProfileScreen() {
         </View>
       </View>
 
-      <ProfileAction icon="map-pin" label="Endereços" active />
+      <ProfileAction icon="map-pin" label="Endereços" onPress={onOpenAddresses} />
       <ProfileAction icon="credit-card" label="Pagamentos" />
       <ProfileAction icon="bell" label="Notificações" />
       <ProfileAction icon="help-circle" label="Ajuda" />
@@ -1100,15 +1506,25 @@ function ProfileScreen() {
   );
 }
 
-function ProfileAction({ icon, label, active }: { icon: FeatherName; label: string; active?: boolean }) {
+function ProfileAction({
+  icon,
+  label,
+  active,
+  onPress,
+}: {
+  icon: FeatherName;
+  label: string;
+  active?: boolean;
+  onPress?: () => void;
+}) {
   return (
-    <View style={[styles.profileAction, active && styles.profileActionActive]}>
+    <Pressable style={[styles.profileAction, active && styles.profileActionActive]} onPress={onPress}>
       <View style={styles.profileActionIcon}>
         <Feather name={icon} size={22} color={palette.muted} />
       </View>
       <Text style={styles.profileActionText}>{label}</Text>
       <Feather name="chevron-right" size={22} color={palette.muted} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -1116,6 +1532,40 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
   const orders = useAppStore((state) => state.orders);
   const order = orders[0];
   const code = order?.confirmationCode ?? "4821";
+  const currentStatus = order?.status ?? "PLACED";
+  const courierName = order?.assignedCourierName ?? "Entregador em definição";
+  const courierRating = order?.assignedCourierRating ?? 4.9;
+  const timelineItems: Array<{
+    key: OrderStatus;
+    icon: FeatherName;
+    label: string;
+    time?: string;
+  }> = [
+    {
+      key: "PLACED",
+      icon: "check",
+      label: "Pedido realizado",
+      time: formatOrderTime(order?.placedAt),
+    },
+    {
+      key: "PROCESSING",
+      icon: "box",
+      label: "Em processamento",
+      time: formatOrderTime(order?.processingAt),
+    },
+    {
+      key: "OUT_FOR_DELIVERY",
+      icon: "truck",
+      label: "Saiu para entrega",
+      time: formatOrderTime(order?.outForDeliveryAt),
+    },
+    {
+      key: "DELIVERED",
+      icon: "home",
+      label: "Entregue",
+      time: formatOrderTime(order?.deliveredAt),
+    },
+  ];
 
   return (
     <ScrollView contentContainerStyle={styles.screenContent}>
@@ -1136,27 +1586,31 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
       </View>
 
       <View style={styles.courierCard}>
-        <View style={styles.courierAvatar}>
-          <Text style={styles.courierEmoji}>🧑‍🌾</Text>
-        </View>
+        {order?.assignedCourierAvatarUrl ? (
+          <Image source={{ uri: order.assignedCourierAvatarUrl }} style={styles.courierPhoto} />
+        ) : (
+          <View style={styles.courierAvatar}>
+            <Text style={styles.courierAvatarText}>{courierName.charAt(0).toUpperCase()}</Text>
+          </View>
+        )}
         <View style={styles.flex}>
-          <Text style={styles.courierName}>João Pereira</Text>
-          <Text style={styles.profileEmail}>★ 4.9 • Entregador</Text>
+          <Text style={styles.courierName}>{courierName}</Text>
+          <Text style={styles.profileEmail}>★ {courierRating.toFixed(1)} • Entregador</Text>
         </View>
-        <Pressable style={styles.contactButton}>
-        <Feather name="phone" size={20} color={palette.onAccent} />
-        </Pressable>
-        <Pressable style={styles.chatButton}>
-          <Feather name="message-circle" size={20} color={palette.text} />
-        </Pressable>
       </View>
 
       <Text style={styles.trackTitle}>Status em tempo real</Text>
       <View style={styles.timeline}>
-        <TimelineItem icon="check" label="Pedido realizado" time="14:02" done />
-        <TimelineItem icon="box" label="Em processamento" time="14:08" done />
-        <TimelineItem icon="truck" label="Saiu para entrega" time="14:24" done active />
-        <TimelineItem icon="home" label="Entregue" time="-" />
+        {timelineItems.map((item) => (
+          <TimelineItem
+            key={item.key}
+            icon={item.icon}
+            label={item.label}
+            time={item.time}
+            isCurrent={currentStatus === item.key}
+            isDelivered={item.key === "DELIVERED" && currentStatus === "DELIVERED"}
+          />
+        ))}
       </View>
     </ScrollView>
   );
@@ -1166,23 +1620,59 @@ function TimelineItem({
   icon,
   label,
   time,
-  done,
-  active,
+  isCurrent,
+  isDelivered,
 }: {
   icon: FeatherName;
   label: string;
-  time: string;
-  done?: boolean;
-  active?: boolean;
+  time?: string;
+  isCurrent?: boolean;
+  isDelivered?: boolean;
 }) {
+  const offsetX = useSharedValue(0);
+
+  useEffect(() => {
+    if (isCurrent && !isDelivered) {
+      offsetX.value = withRepeat(
+        withSequence(
+          withTiming(-4, { duration: 90 }),
+          withTiming(4, { duration: 90 }),
+          withTiming(0, { duration: 90 }),
+        ),
+        -1,
+        false,
+      );
+      return () => cancelAnimation(offsetX);
+    }
+
+    cancelAnimation(offsetX);
+    offsetX.value = 0;
+    return undefined;
+  }, [isCurrent, isDelivered, offsetX]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: offsetX.value }],
+  }));
+  const toneStyle = isDelivered
+    ? styles.timelineIconDelivered
+    : isCurrent
+      ? styles.timelineIconCurrent
+      : undefined;
+  const labelToneStyle = isDelivered
+    ? styles.timelineLabelDelivered
+    : isCurrent
+      ? styles.timelineLabelCurrent
+      : styles.timelineLabelMuted;
+  const iconColor = isDelivered || isCurrent ? palette.onAccent : palette.muted;
+
   return (
     <View style={styles.timelineItem}>
-      <View style={[styles.timelineIcon, done && styles.timelineIconDone, active && styles.timelineIconActive]}>
-        <Feather name={icon} size={20} color={done ? palette.onAccent : palette.muted} />
-      </View>
+      <Animated.View style={[styles.timelineIcon, toneStyle, animatedStyle]}>
+        <Feather name={icon} size={20} color={iconColor} />
+      </Animated.View>
       <View>
-        <Text style={[styles.timelineLabel, !done && styles.timelineLabelMuted]}>{label}</Text>
-        <Text style={styles.timelineTime}>{time}</Text>
+        <Text style={[styles.timelineLabel, labelToneStyle]}>{label}</Text>
+        <Text style={styles.timelineTime}>{time ?? "-"}</Text>
       </View>
     </View>
   );
@@ -1222,11 +1712,13 @@ export function AppNavigator() {
   const isAuthenticated = useAppStore((state) => state.isAuthenticated);
   const activeRole = useAppStore((state) => state.activeRole);
   const bootstrap = useAppStore((state) => state.bootstrap);
+  const refreshAddresses = useAppStore((state) => state.refreshAddresses);
   const refreshCatalog = useAppStore((state) => state.refreshCatalog);
   const refreshCart = useAppStore((state) => state.refreshCart);
   const refreshOrders = useAppStore((state) => state.refreshOrders);
   const [publicScreen, setPublicScreen] = useState<PublicScreen>("landing");
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [profileSection, setProfileSection] = useState<"overview" | "addresses">("overview");
   const [tracking, setTracking] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>();
@@ -1241,10 +1733,11 @@ export function AppNavigator() {
   }, [bootstrap]);
 
   const handleRealtimeChange = useCallback(() => {
+    void refreshAddresses();
     void refreshCatalog();
     void refreshCart();
     void refreshOrders();
-  }, [refreshCatalog, refreshCart, refreshOrders]);
+  }, [refreshAddresses, refreshCatalog, refreshCart, refreshOrders]);
 
   useOrderRealtime(handleRealtimeChange);
 
@@ -1270,10 +1763,12 @@ export function AppNavigator() {
 
   const shouldShowCustomerTabs = activeRole === "CUSTOMER";
   const selectedProduct = products.find((product) => product.id === selectedProductId);
-  const isNestedScreen = tracking || checkoutOpen || Boolean(selectedProduct);
+  const isNestedScreen =
+    tracking || checkoutOpen || Boolean(selectedProduct) || profileSection === "addresses";
   const handleTabChange = (tab: AppTab) => {
     setTracking(false);
     setCheckoutOpen(false);
+    setProfileSection("overview");
     setSelectedProductId(undefined);
     setActiveTab(tab);
   };
@@ -1305,8 +1800,10 @@ export function AppNavigator() {
         <CartScreen onCheckout={() => setCheckoutOpen(true)} />
       ) : activeTab === "orders" ? (
         <OrdersScreen onTrack={() => setTracking(true)} />
+      ) : profileSection === "addresses" ? (
+        <AddressesScreen onBack={() => setProfileSection("overview")} />
       ) : (
-        <ProfileScreen />
+        <ProfileScreen onOpenAddresses={() => setProfileSection("addresses")} />
       )}
       {shouldShowCustomerTabs && !isNestedScreen ? (
         <BottomTabs activeTab={activeTab} onChange={handleTabChange} />
@@ -1544,6 +2041,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  homeAddressTrigger: {
+    flex: 1,
+    marginRight: 12,
+  },
   mutedSmall: {
     color: palette.muted,
     fontSize: 14,
@@ -1556,7 +2057,68 @@ const styles = StyleSheet.create({
   },
   addressText: {
     color: palette.text,
+    flexShrink: 1,
     fontSize: 18,
+  },
+  addressCaption: {
+    color: palette.muted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  homeAddressSelector: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 12,
+    padding: 14,
+  },
+  homeAddressOption: {
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+    borderColor: palette.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 84,
+    padding: 14,
+  },
+  homeAddressOptionActive: {
+    borderColor: palette.green,
+  },
+  homeAddressOptionInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  homeAddressOptionTitle: {
+    color: palette.text,
+    fontSize: 16,
+  },
+  homeAddressOptionText: {
+    color: palette.text,
+    fontSize: 14,
+    marginTop: 4,
+  },
+  homeAddressOptionSubtext: {
+    color: palette.muted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  homeAddressEmpty: {
+    backgroundColor: palette.cardSoft,
+    borderRadius: 16,
+    padding: 14,
+  },
+  homeAddressEmptyTitle: {
+    color: palette.text,
+    fontSize: 15,
+  },
+  homeAddressEmptyText: {
+    color: palette.muted,
+    fontSize: 13,
+    marginTop: 6,
   },
   notificationButton: {
     alignItems: "center",
@@ -2098,6 +2660,109 @@ const styles = StyleSheet.create({
     fontSize: 17,
     marginTop: 6,
   },
+  addressCardSubtext: {
+    color: palette.muted,
+    fontSize: 14,
+    marginTop: 8,
+  },
+  addressPrimaryButton: {
+    borderRadius: 16,
+    marginTop: 18,
+  },
+  addressPrimaryButtonContent: {
+    height: 54,
+  },
+  addressEditorCard: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 18,
+    marginTop: 18,
+    padding: 18,
+  },
+  addressEditorTitle: {
+    color: palette.text,
+    fontSize: 22,
+  },
+  addressFormGrid: {
+    gap: 14,
+  },
+  addressFormRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  addressFormSmallField: {
+    width: 92,
+  },
+  addressEditorActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  addressSecondaryButton: {
+    borderRadius: 14,
+    flex: 1,
+  },
+  addressSaveButton: {
+    borderRadius: 14,
+    flex: 1,
+  },
+  addressSecondaryButtonContent: {
+    height: 50,
+  },
+  addressList: {
+    gap: 14,
+    marginTop: 22,
+  },
+  userAddressCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+  },
+  userAddressCardActive: {
+    borderColor: palette.green,
+    opacity: 1,
+  },
+  userAddressCardInactive: {
+    borderColor: palette.border,
+    opacity: 0.6,
+  },
+  addressCardHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  addressCardInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  lastUsedBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,53,63,0.16)",
+    borderRadius: 14,
+    flexShrink: 0,
+    maxWidth: 132,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  lastUsedBadgeText: {
+    color: palette.green,
+    fontSize: 12,
+    textAlign: "center",
+  },
+  addressZipText: {
+    color: palette.text,
+    fontSize: 13,
+    marginTop: 12,
+  },
+  addressActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 14,
+  },
   paymentList: {
     gap: 12,
   },
@@ -2358,28 +3023,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 58,
   },
-  courierEmoji: {
-    fontSize: 26,
+  courierPhoto: {
+    borderRadius: 29,
+    height: 58,
+    width: 58,
+  },
+  courierAvatarText: {
+    color: palette.onAccent,
+    fontSize: 24,
   },
   courierName: {
     color: palette.text,
     fontSize: 20,
-  },
-  contactButton: {
-    alignItems: "center",
-    backgroundColor: palette.green,
-    borderRadius: 24,
-    height: 48,
-    justifyContent: "center",
-    width: 48,
-  },
-  chatButton: {
-    alignItems: "center",
-    backgroundColor: palette.cardSoft,
-    borderRadius: 24,
-    height: 48,
-    justifyContent: "center",
-    width: 48,
   },
   trackTitle: {
     color: palette.text,
@@ -2403,16 +3058,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 48,
   },
-  timelineIconDone: {
+  timelineIconCurrent: {
     backgroundColor: palette.green,
   },
-  timelineIconActive: {
-    borderColor: "#8f232b",
-    borderWidth: 7,
+  timelineIconDelivered: {
+    backgroundColor: palette.success,
   },
   timelineLabel: {
-    color: palette.text,
     fontSize: 21,
+  },
+  timelineLabelCurrent: {
+    color: palette.text,
+  },
+  timelineLabelDelivered: {
+    color: palette.success,
   },
   timelineLabelMuted: {
     color: palette.muted,

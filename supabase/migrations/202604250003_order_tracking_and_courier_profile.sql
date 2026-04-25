@@ -1,4 +1,16 @@
-alter type public.payment_method add value if not exists 'CARD_ONLINE';
+alter table public.profiles
+  add column if not exists avatar_url text,
+  add column if not exists rating numeric(2,1);
+
+alter table public.profiles
+  drop constraint if exists rating_range;
+
+alter table public.profiles
+  add constraint rating_range check (rating is null or (rating >= 0 and rating <= 5));
+
+alter table public.orders
+  add column if not exists processing_at timestamptz,
+  add column if not exists out_for_delivery_at timestamptz;
 
 create or replace function public.checkout_cart(
   p_cart_id uuid,
@@ -141,11 +153,49 @@ begin
     v_order_id,
     p_payment_method,
     greatest(v_subtotal - v_discount_total, 0) + v_delivery_fee,
-    case when p_payment_method::text in ('PIX', 'CARD_ONLINE') then 'ABACATEPAY' else null end
+    case when p_payment_method in ('PIX', 'CARD_ONLINE') then 'ABACATEPAY' else 'OFFLINE' end
   );
 
-  delete from public.cart_items where cart_id = p_cart_id;
+  update public.carts
+  set status = 'CHECKED_OUT'
+  where id = p_cart_id;
+
+  insert into public.carts (user_id)
+  values (v_customer_id);
 
   return v_order_id;
+end;
+$$;
+
+create or replace function public.admin_update_order_status(
+  p_order_id uuid,
+  p_status public.order_status
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() and coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'Somente administradores podem alterar status globais';
+  end if;
+
+  update public.orders
+  set
+    status = p_status,
+    processing_at = case
+      when p_status = 'PROCESSING' and processing_at is null then timezone('utc', now())
+      else processing_at
+    end,
+    out_for_delivery_at = case
+      when p_status = 'OUT_FOR_DELIVERY' and out_for_delivery_at is null then timezone('utc', now())
+      else out_for_delivery_at
+    end,
+    delivered_at = case when p_status = 'DELIVERED' then timezone('utc', now()) else delivered_at end
+  where id = p_order_id;
+
+  insert into public.audit_logs (actor_user_id, entity_name, entity_id, action, payload)
+  values (auth.uid(), 'orders', p_order_id::text, 'STATUS_UPDATED', jsonb_build_object('status', p_status));
 end;
 $$;

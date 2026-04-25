@@ -23,6 +23,22 @@ export type ProductSummary = {
   isAvailable: boolean;
 };
 
+export type AddressRecord = {
+  id: string;
+  userId: string;
+  label: string;
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OrderSummary = {
   id: string;
   userId: string;
@@ -32,4 +48,11 @@ export type OrderSummary = {
   paymentMethod: PaymentMethod;
   confirmationCode: string;
   assignedCourierId?: string;
+  assignedCourierName?: string;
+  assignedCourierAvatarUrl?: string;
+  assignedCourierRating?: number;
+  placedAt?: string;
+  processingAt?: string;
+  outForDeliveryAt?: string;
+  deliveredAt?: string;
 };

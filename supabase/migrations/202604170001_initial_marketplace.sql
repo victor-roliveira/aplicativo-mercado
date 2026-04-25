@@ -35,13 +35,32 @@ create table if not exists public.profiles (
   full_name text not null,
   cpf text,
   phone text,
+  avatar_url text,
+  rating numeric(2,1),
   vehicle_plate text,
   driver_license text,
   role public.app_role not null default 'CUSTOMER',
   is_active boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
-  constraint cpf_length check (cpf is null or char_length(regexp_replace(cpf, '\D', '', 'g')) = 11)
+  constraint cpf_length check (cpf is null or char_length(regexp_replace(cpf, '\D', '', 'g')) = 11),
+  constraint rating_range check (rating is null or (rating >= 0 and rating <= 5))
+);
+
+create table if not exists public.addresses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  label text not null,
+  street text not null,
+  number text not null,
+  complement text,
+  neighborhood text not null,
+  city text not null,
+  state text not null,
+  zip_code text not null,
+  last_used_at timestamptz,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
 );
 
 create table if not exists public.categories (
@@ -109,6 +128,8 @@ create table if not exists public.orders (
   delivery_confirmation_code_hash text not null,
   stock_issue_reason text,
   placed_at timestamptz not null default timezone('utc', now()),
+  processing_at timestamptz,
+  out_for_delivery_at timestamptz,
   delivered_at timestamptz
 );
 
@@ -243,6 +264,35 @@ begin
 end;
 $$;
 
+create or replace function public.mark_address_last_used(
+  p_address_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.addresses
+    where id = p_address_id
+      and user_id = auth.uid()
+  ) then
+    raise exception 'Endereco invalido';
+  end if;
+
+  update public.addresses
+  set last_used_at = null
+  where user_id = auth.uid();
+
+  update public.addresses
+  set last_used_at = timezone('utc', now())
+  where id = p_address_id
+    and user_id = auth.uid();
+end;
+$$;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
@@ -296,7 +346,7 @@ begin
     v_discount_total := v_discount_total + (v_item.discount_in_cents * v_item.quantity);
   end loop;
 
-  v_code := right(regexp_replace(coalesce((select cpf from public.profiles where id = v_customer_id), '0000'), '\D', '', 'g'), 4);
+  v_code := right(regexp_replace(coalesce((select phone from public.profiles where id = v_customer_id), '0000'), '\D', '', 'g'), 4);
 
   insert into public.orders (
     customer_id,
@@ -395,6 +445,14 @@ begin
   update public.orders
   set
     status = p_status,
+    processing_at = case
+      when p_status = 'PROCESSING' and processing_at is null then timezone('utc', now())
+      else processing_at
+    end,
+    out_for_delivery_at = case
+      when p_status = 'OUT_FOR_DELIVERY' and out_for_delivery_at is null then timezone('utc', now())
+      else out_for_delivery_at
+    end,
     delivered_at = case when p_status = 'DELIVERED' then timezone('utc', now()) else delivered_at end
   where id = p_order_id;
 
@@ -487,6 +545,7 @@ end;
 $$;
 
 alter table public.profiles enable row level security;
+alter table public.addresses enable row level security;
 alter table public.categories enable row level security;
 alter table public.products enable row level security;
 alter table public.product_images enable row level security;
@@ -525,6 +584,11 @@ create policy "admin manages operational profiles"
 on public.profiles for update
 using (public.is_admin())
 with check (role <> 'ADMIN' or public.current_role() = 'DEVELOPER');
+
+create policy "users manage own addresses"
+on public.addresses for all
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
 
 create policy "users manage own cart"
 on public.carts for all
@@ -622,6 +686,10 @@ create trigger profiles_touch_updated_at
 before update on public.profiles
 for each row execute procedure public.touch_updated_at();
 
+create trigger addresses_touch_updated_at
+before update on public.addresses
+for each row execute procedure public.touch_updated_at();
+
 create trigger products_touch_updated_at
 before update on public.products
 for each row execute procedure public.touch_updated_at();
@@ -632,3 +700,6 @@ for each row execute procedure public.touch_updated_at();
 
 create unique index if not exists carts_one_open_cart_per_user
 on public.carts (user_id, status);
+
+create index if not exists addresses_user_id_last_used_idx
+on public.addresses (user_id, last_used_at desc, updated_at desc);
