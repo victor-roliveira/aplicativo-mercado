@@ -29,11 +29,18 @@ import type {
 import { subscribeToAuthChanges, type AddressFormData } from "../services/market-api";
 import { useOrderRealtime } from "../services/use-order-realtime";
 import { useAppStore } from "../state/app-store";
+import HomeIcon from "../../assets/images/icone-home.svg";
+import CartIcon from "../../assets/images/icone-carrinho.svg";
+import ProfileIcon from "../../assets/images/icone-perfil.svg";
+import ProcessingIcon from "../../assets/images/icone-processamento.svg";
+import OutForDeliveryIcon from "../../assets/images/icone-saiu-entrega.svg";
+import LogoutIcon from "../../assets/images/icone-sair.svg";
 
 type PublicScreen = "landing" | "login" | "register" | "register-courier";
 type AppTab = "home" | "cart" | "orders" | "profile";
 type FeatherName = keyof typeof Feather.glyphMap;
 type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+type SvgIconComponent = typeof HomeIcon;
 
 const palette = {
   background: "#140c0f",
@@ -202,6 +209,18 @@ function Logo() {
       <Image source={logoFullImage} style={styles.logoImage} resizeMode="contain" />
     </View>
   );
+}
+
+function AppSvgIcon({
+  Icon,
+  size,
+  color,
+}: {
+  Icon: SvgIconComponent;
+  size: number;
+  color: string;
+}) {
+  return <Icon width={size} height={size} color={color} />;
 }
 
 function PrimaryButton({
@@ -1498,7 +1517,7 @@ function ProfileScreen({ onOpenAddresses }: { onOpenAddresses: () => void }) {
       <ProfileAction icon="help-circle" label="Ajuda" />
       <Pressable style={[styles.profileAction, styles.logoutAction]} onPress={() => void signOut()}>
         <View style={[styles.profileActionIcon, styles.logoutIcon]}>
-          <Feather name="log-out" size={22} color={palette.danger} />
+          <AppSvgIcon Icon={LogoutIcon} size={22} color={palette.danger} />
         </View>
         <Text style={styles.logoutText}>Sair</Text>
       </Pressable>
@@ -1537,7 +1556,8 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
   const courierRating = order?.assignedCourierRating ?? 4.9;
   const timelineItems: Array<{
     key: OrderStatus;
-    icon: FeatherName;
+    icon?: FeatherName;
+    svgIcon?: SvgIconComponent;
     label: string;
     time?: string;
   }> = [
@@ -1549,13 +1569,13 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
     },
     {
       key: "PROCESSING",
-      icon: "box",
+      svgIcon: ProcessingIcon,
       label: "Em processamento",
       time: formatOrderTime(order?.processingAt),
     },
     {
       key: "OUT_FOR_DELIVERY",
-      icon: "truck",
+      svgIcon: OutForDeliveryIcon,
       label: "Saiu para entrega",
       time: formatOrderTime(order?.outForDeliveryAt),
     },
@@ -1605,6 +1625,7 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
           <TimelineItem
             key={item.key}
             icon={item.icon}
+            svgIcon={item.svgIcon}
             label={item.label}
             time={item.time}
             isCurrent={currentStatus === item.key}
@@ -1618,12 +1639,14 @@ function TrackScreen({ onBack }: { onBack: () => void }) {
 
 function TimelineItem({
   icon,
+  svgIcon,
   label,
   time,
   isCurrent,
   isDelivered,
 }: {
-  icon: FeatherName;
+  icon?: FeatherName;
+  svgIcon?: SvgIconComponent;
   label: string;
   time?: string;
   isCurrent?: boolean;
@@ -1668,7 +1691,11 @@ function TimelineItem({
   return (
     <View style={styles.timelineItem}>
       <Animated.View style={[styles.timelineIcon, toneStyle, animatedStyle]}>
-        <Feather name={icon} size={20} color={iconColor} />
+        {svgIcon ? (
+          <AppSvgIcon Icon={svgIcon} size={20} color={iconColor} />
+        ) : icon ? (
+          <Feather name={icon} size={20} color={iconColor} />
+        ) : null}
       </Animated.View>
       <View>
         <Text style={[styles.timelineLabel, labelToneStyle]}>{label}</Text>
@@ -1685,11 +1712,16 @@ function BottomTabs({
   activeTab: AppTab;
   onChange: (tab: AppTab) => void;
 }) {
-  const tabs: Array<{ key: AppTab; label: string; icon: FeatherName }> = [
-    { key: "home", label: "Início", icon: "home" },
-    { key: "cart", label: "Carrinho", icon: "shopping-bag" },
+  const tabs: Array<{
+    key: AppTab;
+    label: string;
+    icon?: FeatherName;
+    svgIcon?: SvgIconComponent;
+  }> = [
+    { key: "home", label: "Início", svgIcon: HomeIcon },
+    { key: "cart", label: "Carrinho", svgIcon: CartIcon },
     { key: "orders", label: "Pedidos", icon: "list" },
-    { key: "profile", label: "Perfil", icon: "user" },
+    { key: "profile", label: "Perfil", svgIcon: ProfileIcon },
   ];
 
   return (
@@ -1699,7 +1731,11 @@ function BottomTabs({
 
         return (
           <Pressable key={tab.key} style={styles.tabButton} onPress={() => onChange(tab.key)}>
-            <Feather name={tab.icon} size={23} color={active ? palette.green : palette.muted} />
+            {tab.svgIcon ? (
+              <AppSvgIcon Icon={tab.svgIcon} size={23} color={active ? palette.green : palette.muted} />
+            ) : (
+              <Feather name={tab.icon!} size={23} color={active ? palette.green : palette.muted} />
+            )}
             <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
           </Pressable>
         );
