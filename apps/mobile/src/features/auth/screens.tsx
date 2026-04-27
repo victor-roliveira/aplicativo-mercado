@@ -71,6 +71,7 @@ export function AuthScreen({
 }) {
   const signIn = useAppStore((state) => state.signIn);
   const signUp = useAppStore((state) => state.signUp);
+  const requestPasswordReset = useAppStore((state) => state.requestPasswordReset);
   const isLoading = useAppStore((state) => state.isLoading);
   const isCourierRegistration = mode === "register" && registrationKind === "courier";
   const [form, setForm] = useState({
@@ -188,7 +189,7 @@ export function AuthScreen({
             onChangeText={(value) => updateForm("phone", value)}
           />
         ) : (
-          <Pressable style={styles.forgotPassword}>
+          <Pressable style={styles.forgotPassword} onPress={() => void requestPasswordReset(form.email)}>
             <Text style={styles.greenText}>Esqueci minha senha</Text>
           </Pressable>
         )}
@@ -231,6 +232,54 @@ export function AuthScreen({
           <Text style={styles.greenText}>{mode === "login" ? "Cadastre-se" : "Entrar"}</Text>
         </Text>
       </Pressable>
+    </ScrollView>
+  );
+}
+
+export function ResetPasswordScreen({ onBack }: { onBack: () => void }) {
+  const completePasswordReset = useAppStore((state) => state.updatePassword);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const submit = () => {
+    void completePasswordReset(password, confirmPassword);
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.authContent} keyboardShouldPersistTaps="handled">
+      <Pressable style={styles.backButton} onPress={onBack}>
+        <Feather name="arrow-left" size={22} color={palette.text} />
+      </Pressable>
+      <Logo />
+      <Text style={styles.authTitle}>Redefinir senha</Text>
+      <Text style={styles.authSubtitle}>Digite sua nova senha para concluir a recuperacao da conta</Text>
+
+      <View style={styles.authForm}>
+        <AppInput
+          label="Nova senha"
+          icon="lock"
+          value={password}
+          placeholder="minimo 8 caracteres"
+          secureTextEntry
+          onChangeText={setPassword}
+        />
+        <AppInput
+          label="Confirmar nova senha"
+          icon="lock"
+          value={confirmPassword}
+          placeholder="repita a nova senha"
+          secureTextEntry
+          onChangeText={setConfirmPassword}
+        />
+      </View>
+
+      <PrimaryButton
+        label="Salvar nova senha"
+        loading={isLoading}
+        disabled={isLoading}
+        onPress={submit}
+      />
     </ScrollView>
   );
 }

@@ -6,6 +6,7 @@ import type {
   PaymentMethod,
   ProductSummary,
 } from "@mercado/shared/domain/models";
+import Constants from "expo-constants";
 import { supabase } from "./supabase";
 
 export type AuthForm = {
@@ -24,11 +25,14 @@ export type Profile = {
   fullName: string;
   role: AppRole;
   email?: string;
+  contactEmail?: string;
   phone?: string;
   avatarUrl?: string;
   rating?: number;
+  vehicleType?: string;
   vehiclePlate?: string;
   driverLicense?: string;
+  createdAt?: string;
 };
 
 export type CartLine = {
@@ -183,7 +187,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, role, phone, avatar_url, rating, vehicle_plate, driver_license")
+    .select("id, full_name, role, contact_email, phone, avatar_url, rating, vehicle_type, vehicle_plate, driver_license, created_at")
     .eq("id", user.id)
     .single();
 
@@ -196,11 +200,14 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     fullName: data.full_name,
     role: data.role,
     email: user.email,
+    contactEmail: data.contact_email ?? user.email ?? undefined,
     phone: data.phone ?? undefined,
     avatarUrl: data.avatar_url ?? undefined,
     rating: data.rating ?? undefined,
+    vehicleType: data.vehicle_type ?? undefined,
     vehiclePlate: data.vehicle_plate ?? undefined,
     driverLicense: data.driver_license ?? undefined,
+    createdAt: data.created_at ?? undefined,
   };
 }
 
@@ -251,6 +258,71 @@ export async function signUpAccount({
 export async function signOut() {
   const client = getClient();
   const { error } = await client.auth.signOut();
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function requestPasswordReset(email: string) {
+  const client = getClient();
+  const baseUrl = Constants.linkingUri?.replace(/\/+$/, "");
+  const redirectTo = baseUrl
+    ? `${baseUrl.includes("/--") ? baseUrl : `${baseUrl}/--`}/reset-password`
+    : "mercado://reset-password";
+  const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+function extractAuthParams(url: string) {
+  const [basePart, hashPart = ""] = url.split("#");
+  const queryString = basePart.includes("?") ? basePart.split("?")[1] ?? "" : "";
+  const params = new URLSearchParams(queryString);
+  const hashParams = new URLSearchParams(hashPart);
+
+  hashParams.forEach((value, key) => {
+    params.set(key, value);
+  });
+
+  return params;
+}
+
+export async function consumePasswordRecoveryLink(url: string) {
+  const client = getClient();
+  const params = extractAuthParams(url);
+  const type = params.get("type");
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  const errorDescription = params.get("error_description");
+
+  if (errorDescription) {
+    throw new Error(decodeURIComponent(errorDescription));
+  }
+
+  if (type !== "recovery" || !accessToken || !refreshToken) {
+    return false;
+  }
+
+  const { error } = await client.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return true;
+}
+
+export async function updatePassword(password: string) {
+  const client = getClient();
+  const { error } = await client.auth.updateUser({ password });
 
   if (error) {
     throw error;

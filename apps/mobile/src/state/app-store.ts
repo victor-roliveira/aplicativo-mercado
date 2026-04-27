@@ -13,9 +13,11 @@ import {
   getCurrentProfile,
   markAddressAsLastUsed as markRemoteAddressAsLastUsed,
   removeCartItem as removeRemoteCartItem,
+  requestPasswordReset as requestRemotePasswordReset,
   signInWithPassword,
   signOut as signOutRemote,
   signUpAccount,
+  updatePassword as updateRemotePassword,
   updateAddress as updateRemoteAddress,
   type AddressFormData,
   type AuthForm,
@@ -42,6 +44,8 @@ type AppState = {
   refreshOrders: () => Promise<void>;
   signIn: (form: AuthForm) => Promise<void>;
   signUp: (form: AuthForm) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string, confirmPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
   createAddress: (input: AddressFormData) => Promise<void>;
   updateAddress: (addressId: string, input: AddressFormData) => Promise<void>;
@@ -348,6 +352,45 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         statusMessage:
           "Conta criada e login realizado com sucesso.",
+      });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  requestPasswordReset: async (email) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      if (!email.trim()) {
+        throw new Error("Informe seu email para recuperar a senha.");
+      }
+
+      await requestRemotePasswordReset(email);
+      set({
+        isLoading: false,
+        statusMessage: "Enviamos o link de redefinicao para seu email.",
+      });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  updatePassword: async (password, confirmPassword) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      if (password.trim().length < 8) {
+        throw new Error("A nova senha deve ter pelo menos 8 caracteres.");
+      }
+
+      if (password !== confirmPassword) {
+        throw new Error("As senhas nao coincidem.");
+      }
+
+      await updateRemotePassword(password);
+      await get().bootstrap();
+      set({
+        isLoading: false,
+        statusMessage: "Senha atualizada com sucesso.",
       });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });

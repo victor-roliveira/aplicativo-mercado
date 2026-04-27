@@ -6,6 +6,9 @@ import ProfileIcon from "../../assets/images/icone-perfil.svg";
 import ProcessingIcon from "../../assets/images/icone-processamento.svg";
 import OutForDeliveryIcon from "../../assets/images/icone-saiu-entrega.svg";
 import LogoutIcon from "../../assets/images/icone-sair.svg";
+import AdminProductsIcon from "../../assets/images/icone-produtos.svg";
+import AdminCouriersIcon from "../../assets/images/icone-entregadores.svg";
+import AdminOrdersIcon from "../../assets/images/icone-pedidos.svg";
 
 export type FeatherName = keyof typeof Feather.glyphMap;
 export type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
@@ -72,4 +75,7 @@ export const svgIcons = {
   ProcessingIcon,
   OutForDeliveryIcon,
   LogoutIcon,
+  AdminProductsIcon,
+  AdminCouriersIcon,
+  AdminOrdersIcon,
 } as const;
