@@ -102,8 +102,10 @@ export function HomeScreen({
           </Text>
         </Pressable>
         <Pressable style={styles.notificationButton}>
-          <Feather name="bell" size={22} color={palette.text} />
-          <View style={styles.notificationDot} />
+          <>
+            <Feather name="bell" size={22} color={palette.text} />
+            <View style={styles.notificationDot} />
+          </>
         </Pressable>
       </View>
 

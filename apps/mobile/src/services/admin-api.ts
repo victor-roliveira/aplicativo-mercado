@@ -1,5 +1,6 @@
 import type { OrderStatus } from "@mercado/shared/domain/models";
 import { supabase } from "./supabase";
+import { removeProductImageByUrl, type UploadableProductImage, uploadProductImage } from "./storage-api";
 
 export type AdminCategory = {
   id: string;
@@ -15,6 +16,7 @@ export type AdminProduct = {
   sku: string;
   description: string;
   priceInCents: number;
+  discountInCents: number;
   stockQuantity: number;
   unitLabel: string;
   imageUrl?: string;
@@ -28,10 +30,15 @@ export type AdminProductForm = {
   sku: string;
   description: string;
   price: string;
+  discount: string;
   stock: string;
   unitLabel: string;
   imageUrl: string;
 };
+
+export async function uploadAdminProductImage(asset: UploadableProductImage) {
+  return uploadProductImage(asset);
+}
 
 export type AdminCourierStatus = "DELIVERING" | "AVAILABLE" | "INACTIVE";
 
@@ -99,6 +106,7 @@ type ProductRow = {
   sku: string | null;
   description: string;
   price_in_cents: number;
+  discount_in_cents: number;
   stock_quantity: number;
   unit_label: string | null;
   is_active: boolean;
@@ -226,7 +234,7 @@ export async function fetchAdminProducts(): Promise<AdminProduct[]> {
   const client = getClient();
   const { data, error } = await client
     .from("products")
-    .select("id, category_id, name, sku, description, price_in_cents, stock_quantity, unit_label, is_active, categories(name), product_images(image_url, is_primary, sort_order)")
+    .select("id, category_id, name, sku, description, price_in_cents, discount_in_cents, stock_quantity, unit_label, is_active, categories(name), product_images(image_url, is_primary, sort_order)")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -249,6 +257,7 @@ export async function fetchAdminProducts(): Promise<AdminProduct[]> {
         sku: product.sku ?? `PRD-${product.id.slice(0, 8).toUpperCase()}`,
         description: product.description,
         priceInCents: product.price_in_cents,
+        discountInCents: product.discount_in_cents,
         stockQuantity: product.stock_quantity,
         unitLabel: product.unit_label ?? "un",
         imageUrl: images[0]?.image_url,
@@ -265,6 +274,7 @@ export async function saveAdminProduct(input: AdminProductForm): Promise<AdminPr
     sku: input.sku.trim(),
     description: input.description.trim(),
     price_in_cents: normalizeMoney(input.price),
+    discount_in_cents: input.discount.trim() ? normalizeMoney(input.discount) : 0,
     stock_quantity: normalizeInteger(input.stock, "um estoque"),
     unit_label: input.unitLabel.trim().toLowerCase() || "un",
     is_active: true,
@@ -275,6 +285,20 @@ export async function saveAdminProduct(input: AdminProductForm): Promise<AdminPr
   }
 
   let productId = input.id;
+  let previousImageUrls: string[] = [];
+
+  if (input.id) {
+    const { data: existingImages, error: existingImagesError } = await client
+      .from("product_images")
+      .select("image_url")
+      .eq("product_id", input.id);
+
+    if (existingImagesError) {
+      throw existingImagesError;
+    }
+
+    previousImageUrls = (existingImages ?? []).map((image) => image.image_url).filter(Boolean);
+  }
 
   if (input.id) {
     const { error } = await client.from("products").update(payload).eq("id", input.id);
@@ -303,16 +327,24 @@ export async function saveAdminProduct(input: AdminProductForm): Promise<AdminPr
     throw new Error("Não foi possível identificar o produto salvo.");
   }
 
+  const nextImageUrl = input.imageUrl.trim();
+
+  for (const previousImageUrl of previousImageUrls) {
+    if (previousImageUrl !== nextImageUrl) {
+      await removeProductImageByUrl(previousImageUrl);
+    }
+  }
+
   const { error: deleteImagesError } = await client.from("product_images").delete().eq("product_id", productId);
 
   if (deleteImagesError) {
     throw deleteImagesError;
   }
 
-  if (input.imageUrl.trim()) {
+  if (nextImageUrl) {
     const { error: imageError } = await client.from("product_images").insert({
       product_id: productId,
-      image_url: input.imageUrl.trim(),
+      image_url: nextImageUrl,
       is_primary: true,
       sort_order: 0,
     });
@@ -327,6 +359,19 @@ export async function saveAdminProduct(input: AdminProductForm): Promise<AdminPr
 
 export async function deleteAdminProduct(productId: string): Promise<AdminProduct[]> {
   const client = getClient();
+  const { data: existingImages, error: existingImagesError } = await client
+    .from("product_images")
+    .select("image_url")
+    .eq("product_id", productId);
+
+  if (existingImagesError) {
+    throw existingImagesError;
+  }
+
+  for (const image of existingImages ?? []) {
+    await removeProductImageByUrl(image.image_url);
+  }
+
   const { error } = await client
     .from("products")
     .update({

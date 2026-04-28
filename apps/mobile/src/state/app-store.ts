@@ -17,6 +17,7 @@ import {
   signInWithPassword,
   signOut as signOutRemote,
   signUpAccount,
+  updateMyProfile as updateRemoteProfile,
   updatePassword as updateRemotePassword,
   updateAddress as updateRemoteAddress,
   type AddressFormData,
@@ -24,6 +25,7 @@ import {
   type CartLine,
   type OrderCard,
   type Profile,
+  type ProfileUpdateFormData,
 } from "../services/market-api";
 
 type AppState = {
@@ -46,6 +48,8 @@ type AppState = {
   signUp: (form: AuthForm) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string, confirmPassword: string) => Promise<void>;
+  changePassword: (password: string, confirmPassword: string) => Promise<void>;
+  updateProfile: (input: ProfileUpdateFormData) => Promise<void>;
   signOut: () => Promise<void>;
   createAddress: (input: AddressFormData) => Promise<void>;
   updateAddress: (addressId: string, input: AddressFormData) => Promise<void>;
@@ -208,6 +212,16 @@ function getErrorMessage(error: unknown) {
   }
 
   return "Nao foi possivel concluir a operacao.";
+}
+
+function validatePasswordInput(password: string, confirmPassword: string) {
+  if (password.trim().length < 8) {
+    throw new Error("A nova senha deve ter pelo menos 8 caracteres.");
+  }
+
+  if (password !== confirmPassword) {
+    throw new Error("As senhas nao coincidem.");
+  }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -378,19 +392,49 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
 
     try {
-      if (password.trim().length < 8) {
-        throw new Error("A nova senha deve ter pelo menos 8 caracteres.");
-      }
-
-      if (password !== confirmPassword) {
-        throw new Error("As senhas nao coincidem.");
-      }
-
+      validatePasswordInput(password, confirmPassword);
       await updateRemotePassword(password);
       await get().bootstrap();
       set({
         isLoading: false,
         statusMessage: "Senha atualizada com sucesso.",
+      });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  changePassword: async (password, confirmPassword) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      validatePasswordInput(password, confirmPassword);
+      await updateRemotePassword(password);
+      set({
+        isLoading: false,
+        statusMessage: "Senha alterada com sucesso.",
+      });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
+  updateProfile: async (input) => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      if (!input.fullName.trim()) {
+        throw new Error("Informe seu nome completo.");
+      }
+
+      if (!input.phone.trim()) {
+        throw new Error("Informe seu telefone.");
+      }
+
+      const profile = await updateRemoteProfile(input);
+      set({
+        profile,
+        activeRole: profile.role,
+        isLoading: false,
+        statusMessage: "Perfil atualizado com sucesso.",
       });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });

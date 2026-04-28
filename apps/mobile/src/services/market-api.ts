@@ -26,6 +26,7 @@ export type Profile = {
   role: AppRole;
   email?: string;
   contactEmail?: string;
+  cpf?: string;
   phone?: string;
   avatarUrl?: string;
   rating?: number;
@@ -68,6 +69,16 @@ export type AddressFormData = {
   city: string;
   state: string;
   zipCode: string;
+};
+
+export type ProfileUpdateFormData = {
+  fullName: string;
+  phone: string;
+  cpf: string;
+  avatarUrl: string;
+  vehicleType?: string;
+  vehiclePlate?: string;
+  driverLicense?: string;
 };
 
 type ProductRow = {
@@ -187,7 +198,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, role, contact_email, phone, avatar_url, rating, vehicle_type, vehicle_plate, driver_license, created_at")
+    .select("id, full_name, role, contact_email, cpf, phone, avatar_url, rating, vehicle_type, vehicle_plate, driver_license, created_at")
     .eq("id", user.id)
     .single();
 
@@ -201,6 +212,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     role: data.role,
     email: user.email,
     contactEmail: data.contact_email ?? user.email ?? undefined,
+    cpf: data.cpf ?? undefined,
     phone: data.phone ?? undefined,
     avatarUrl: data.avatar_url ?? undefined,
     rating: data.rating ?? undefined,
@@ -327,6 +339,31 @@ export async function updatePassword(password: string) {
   if (error) {
     throw error;
   }
+}
+
+export async function updateMyProfile(input: ProfileUpdateFormData): Promise<Profile> {
+  const client = getClient();
+  const { error } = await client.rpc("update_my_profile", {
+    p_full_name: input.fullName.trim(),
+    p_phone: input.phone.trim(),
+    p_cpf: input.cpf.trim(),
+    p_avatar_url: input.avatarUrl.trim(),
+    p_vehicle_type: input.vehicleType?.trim() ?? "",
+    p_vehicle_plate: input.vehiclePlate?.trim() ?? "",
+    p_driver_license: input.driverLicense?.trim() ?? "",
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const profile = await getCurrentProfile();
+
+  if (!profile) {
+    throw new Error("Nao foi possivel recarregar seu perfil.");
+  }
+
+  return profile;
 }
 
 export async function fetchAddresses(): Promise<AddressRecord[]> {

@@ -1,14 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Button, Modal, Portal, Text, TextInput } from "react-native-paper";
 import { palette, svgIcons, type FeatherName, type SvgIconComponent } from "../../app-shell/constants";
 import type { AdminTab } from "../../app-shell/navigation-types";
 import { formatCurrency } from "../../app-shell/helpers";
+import { styles as sharedStyles } from "../../app-shell/styles";
 import { AppSvgIcon } from "../../components/AppSvgIcon";
+import {
+  PasswordEditorFields,
+  ProfileEditorFields,
+  type PasswordEditorDraft,
+  type ProfileEditorDraft,
+} from "../../components/account/AccountForms";
 import { useAppStore } from "../../state/app-store";
 import { useAdminStore } from "./admin-store";
-import type { AdminCourier, AdminCourierForm, AdminOrder, AdminProduct, AdminProductForm } from "../../services/admin-api";
+import {
+  uploadAdminProductImage,
+  type AdminCourier,
+  type AdminCourierForm,
+  type AdminOrder,
+  type AdminProduct,
+  type AdminProductForm,
+} from "../../services/admin-api";
+import {
+  removeProductImageByUrl,
+  removeProfileAvatarByUrl,
+  uploadProfileAvatar,
+  type UploadableProductImage,
+  type UploadableProfileAvatar,
+} from "../../services/storage-api";
 
 type OrderFilter = "ALL" | "PLACED" | "PROCESSING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 
@@ -45,11 +67,15 @@ export function AdminNavigator() {
       {activeTab === "products" ? <AdminProductsScreen /> : null}
       {activeTab === "couriers" ? <AdminCouriersScreen /> : null}
       {activeTab === "orders" ? <AdminOrdersScreen /> : null}
-      {activeTab === "profile" ? <AdminProfileScreen /> : null}
+      {activeTab === "profile" ? <AdminProfileSettingsScreen /> : null}
       <AdminBottomTabs activeTab={activeTab} onChange={setActiveTab} />
     </View>
   );
 }
+
+type EditableAdminProductForm = AdminProductForm & {
+  pendingImage?: UploadableProductImage | null;
+};
 
 function AdminProductsScreen() {
   const categories = useAdminStore((state) => state.categories);
@@ -60,7 +86,7 @@ function AdminProductsScreen() {
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<AdminProduct | null>(null);
-  const [editingProduct, setEditingProduct] = useState<AdminProductForm | null>(null);
+  const [editingProduct, setEditingProduct] = useState<EditableAdminProductForm | null>(null);
 
   const categoryOptions = useMemo(
     () => ["Todos", ...categories.map((category) => category.name)],
@@ -113,6 +139,7 @@ function AdminProductsScreen() {
                 sku: "",
                 description: "",
                 price: "",
+                discount: "",
                 stock: "",
                 unitLabel: "un",
                 imageUrl: "",
@@ -153,7 +180,12 @@ function AdminProductsScreen() {
               <View style={adminStyles.productMeta}>
                 <Text style={adminStyles.softBadge}>{product.categoryName}</Text>
                 <Text style={adminStyles.productTitle}>{product.name}</Text>
-                <Text style={adminStyles.productPrice}>{formatCurrency(product.priceInCents)}</Text>
+                <Text style={adminStyles.productPrice}>
+                  {formatCurrency(Math.max(product.priceInCents - product.discountInCents, 0))}
+                </Text>
+                {product.discountInCents > 0 ? (
+                  <Text style={adminStyles.productOldPrice}>{formatCurrency(product.priceInCents)}</Text>
+                ) : null}
                 <Text style={adminStyles.productUnit}>/ {product.unitLabel}</Text>
               </View>
               <View style={adminStyles.productActions}>
@@ -173,6 +205,10 @@ function AdminProductsScreen() {
                         sku: product.sku,
                         description: product.description,
                         price: (product.priceInCents / 100).toFixed(2).replace(".", ","),
+                        discount:
+                          product.discountInCents > 0
+                            ? (product.discountInCents / 100).toFixed(2).replace(".", ",")
+                            : "",
                         stock: String(product.stockQuantity),
                         unitLabel: product.unitLabel,
                         imageUrl: product.imageUrl ?? "",
@@ -196,9 +232,14 @@ function AdminProductsScreen() {
       </ScrollView>
 
       <Portal>
-        <Modal visible={Boolean(selectedProduct)} onDismiss={() => setSelectedProduct(null)} contentContainerStyle={adminStyles.modalCard}>
+        <Modal visible={Boolean(selectedProduct)} onDismiss={() => setSelectedProduct(null)} contentContainerStyle={adminStyles.detailModalContainer}>
           {selectedProduct ? (
-            <>
+            <View style={adminStyles.detailModalCard}>
+            <ScrollView
+              style={adminStyles.modalScroll}
+              contentContainerStyle={adminStyles.detailModalContent}
+              showsVerticalScrollIndicator
+            >
               <View style={adminStyles.modalHeaderRow}>
                 <Text style={adminStyles.modalTitle}>Detalhes do produto</Text>
                 <Pressable onPress={() => setSelectedProduct(null)}>
@@ -215,12 +256,23 @@ function AdminProductsScreen() {
                 </View>
                 <View style={adminStyles.flexFill}>
                   <Text style={adminStyles.detailName}>{selectedProduct.name}</Text>
-                  <Text style={adminStyles.detailSku}>{selectedProduct.sku}</Text>
+                  <Text style={adminStyles.detailSku}>Código do produto: {selectedProduct.sku}</Text>
                   <Text style={adminStyles.softBadge}>{selectedProduct.categoryName}</Text>
                 </View>
               </View>
               <View style={adminStyles.detailStatRow}>
-                <DetailStat label="Preço" value={formatCurrency(selectedProduct.priceInCents)} accent />
+                <DetailStat
+                  label="Preço final"
+                  value={formatCurrency(Math.max(selectedProduct.priceInCents - selectedProduct.discountInCents, 0))}
+                  accent
+                />
+                <DetailStat
+                  label="Desconto"
+                  value={selectedProduct.discountInCents > 0 ? formatCurrency(selectedProduct.discountInCents) : "Não possui"}
+                />
+              </View>
+              <View style={adminStyles.detailStatRow}>
+                <DetailStat label="Preço base" value={formatCurrency(selectedProduct.priceInCents)} />
                 <DetailStat label="Estoque" value={String(selectedProduct.stockQuantity)} />
                 <DetailStat label="Unidade" value={selectedProduct.unitLabel} />
               </View>
@@ -240,16 +292,22 @@ function AdminProductsScreen() {
                     sku: selectedProduct.sku,
                     description: selectedProduct.description,
                     price: (selectedProduct.priceInCents / 100).toFixed(2).replace(".", ","),
+                    discount:
+                      selectedProduct.discountInCents > 0
+                        ? (selectedProduct.discountInCents / 100).toFixed(2).replace(".", ",")
+                        : "",
                     stock: String(selectedProduct.stockQuantity),
                     unitLabel: selectedProduct.unitLabel,
                     imageUrl: selectedProduct.imageUrl ?? "",
                   });
                   setSelectedProduct(null);
                 }}
+                style={adminStyles.detailEditButton}
               >
                 Editar produto
               </Button>
-            </>
+            </ScrollView>
+            </View>
           ) : null}
         </Modal>
 
@@ -262,7 +320,23 @@ function AdminProductsScreen() {
               onChange={setEditingProduct}
               onCancel={() => setEditingProduct(null)}
               onSave={async () => {
-                await saveProduct(editingProduct);
+                let nextImageUrl = editingProduct.imageUrl;
+                let uploadedImageUrl: string | undefined;
+
+                if (editingProduct.pendingImage) {
+                  uploadedImageUrl = await uploadAdminProductImage(editingProduct.pendingImage);
+                  nextImageUrl = uploadedImageUrl;
+                }
+
+                await saveProduct({
+                  ...editingProduct,
+                  imageUrl: nextImageUrl,
+                });
+
+                if (uploadedImageUrl && useAppStore.getState().errorMessage) {
+                  await removeProductImageByUrl(uploadedImageUrl);
+                }
+
                 if (!useAppStore.getState().errorMessage) {
                   setEditingProduct(null);
                 }
@@ -612,16 +686,99 @@ function AdminOrdersScreen() {
   );
 }
 
+/* Legacy admin profile screen kept only during refactor.
 function AdminProfileScreen() {
   const profile = useAppStore((state) => state.profile);
   const signOut = useAppStore((state) => state.signOut);
+  const updateProfile = useAppStore((state) => state.updateProfile);
+  const changePassword = useAppStore((state) => state.changePassword);
+  const isLoading = useAppStore((state) => state.isLoading);
   const products = useAdminStore((state) => state.products);
   const orders = useAdminStore((state) => state.orders);
   const couriers = useAdminStore((state) => state.couriers);
-  const [showHint, setShowHint] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileEditorDraft>({
+    fullName: "",
+    phone: "",
+    cpf: "",
+    avatarUrl: "",
+  });
+  const [passwordDraft, setPasswordDraft] = useState<PasswordEditorDraft>({
+    password: "",
+    confirmPassword: "",
+  });
+  const [pendingAvatar, setPendingAvatar] = useState<UploadableProfileAvatar | null>(null);
+  const [pendingAvatar, setPendingAvatar] = useState<UploadableProfileAvatar | null>(null);
+
+  const openProfileEditor = () => {
+    setProfileDraft({
+      fullName: profile?.fullName ?? "",
+      phone: profile?.phone ?? "",
+      cpf: profile?.cpf ?? "",
+      avatarUrl: profile?.avatarUrl ?? "",
+    });
+    setPendingAvatar(null);
+    setIsProfileModalOpen(true);
+  };
+
+  const closeProfileEditor = () => {
+    setPendingAvatar(null);
+    setIsProfileModalOpen(false);
+  };
+
+  const openPasswordEditor = () => {
+    setPasswordDraft({
+      password: "",
+      confirmPassword: "",
+    });
+    setIsPasswordModalOpen(true);
+  };
+
+  const closePasswordEditor = () => {
+    setIsPasswordModalOpen(false);
+  };
+
+  const pickAvatarFromGallery = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    if (!asset?.base64) {
+      useAppStore.setState({ errorMessage: "Nao foi possivel ler a foto selecionada." });
+      return;
+    }
+
+    setPendingAvatar({
+      uri: asset.uri,
+      base64: asset.base64,
+      mimeType: asset.mimeType,
+      fileName: asset.fileName,
+    });
+  };
+
+  const removeAvatarSelection = () => {
+    setPendingAvatar(null);
+    setProfileDraft((current) => ({ ...current, avatarUrl: "" }));
+  };
+
+  const avatarPreviewUri = pendingAvatar?.uri ?? profileDraft.avatarUrl;
+
+  const showHint = false;
 
   return (
-    <ScrollView contentContainerStyle={adminStyles.content}>
+    <>
+      <ScrollView contentContainerStyle={adminStyles.content}>
       <AdminHero
         icon={svgIcons.ProfileIcon}
         title="Meu Perfil"
@@ -630,7 +787,11 @@ function AdminProfileScreen() {
 
       <View style={adminStyles.profileCard}>
         <View style={adminStyles.profileAvatar}>
-          <Text style={adminStyles.profileAvatarText}>{getInitials(profile?.fullName)}</Text>
+          {profile?.avatarUrl ? (
+            <Image source={{ uri: profile.avatarUrl }} style={adminStyles.courierAvatarImage} />
+          ) : (
+            <Text style={adminStyles.profileAvatarText}>{getInitials(profile?.fullName)}</Text>
+          )}
         </View>
         <Text style={adminStyles.profileName}>{profile?.fullName ?? "Administrador"}</Text>
         <Text style={adminStyles.profileRole}>Administradora Geral</Text>
@@ -640,7 +801,7 @@ function AdminProfileScreen() {
           textColor="#fff"
           icon="pencil-outline"
           style={adminStyles.profileButton}
-          onPress={() => setShowHint((current) => !current)}
+          onPress={openProfileEditor}
         >
           Editar perfil
         </Button>
@@ -668,15 +829,150 @@ function AdminProfileScreen() {
       <View style={adminStyles.securitySection}>
         <Text style={adminStyles.sectionTitleDark}>Segurança</Text>
         <Text style={adminStyles.sectionSubtitle}>Mantenha sua conta protegida</Text>
-        <View style={adminStyles.securityButton}><Text style={adminStyles.securityButtonText}>Alterar senha</Text></View>
+        <Pressable style={adminStyles.securityButton} onPress={openPasswordEditor}>
+          <Text style={adminStyles.securityButtonText}>Alterar senha</Text>
+        </Pressable>
         <View style={adminStyles.securityButton}><Text style={adminStyles.securityButtonText}>Autenticação em duas etapas</Text></View>
         <Pressable style={adminStyles.securityButton} onPress={() => void signOut()}>
           <Text style={adminStyles.securityButtonDanger}>Sair da conta</Text>
         </Pressable>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      <Portal>
+        <Modal visible={isProfileModalOpen} onDismiss={closeProfileEditor} contentContainerStyle={sharedStyles.accountModalContainer}>
+          <View style={sharedStyles.accountModalCard}>
+          <ScrollView
+            style={sharedStyles.accountModalScroll}
+            contentContainerStyle={sharedStyles.accountModalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            <View style={adminStyles.modalHeaderRow}>
+              <Text style={adminStyles.modalTitle}>Editar perfil</Text>
+              <Pressable onPress={closeProfileEditor}>
+                <Feather name="x" size={24} color="#6b5553" />
+              </Pressable>
+            </View>
+            <Text style={adminStyles.helperText}>
+              Atualize seu nome e telefone. O email de acesso continua o mesmo.
+            </Text>
+            <View style={sharedStyles.accountFormStack}>
+              <ProfileEditorFields
+                draft={profileDraft}
+                avatarPreviewUri={avatarPreviewUri}
+                loading={isLoading}
+                onPickAvatar={() => void pickAvatarFromGallery()}
+                onRemoveAvatar={removeAvatarSelection}
+                onChange={setProfileDraft}
+              />
+            </View>
+            <View style={adminStyles.modalFooterActions}>
+              <Button
+                mode="outlined"
+                style={adminStyles.modalGhostButton}
+                textColor="#2f1d1e"
+                onPress={closeProfileEditor}
+              >
+                Cancelar
+              </Button>
+              <Button
+                mode="contained"
+                loading={isLoading}
+                disabled={isLoading}
+                buttonColor={palette.green}
+                textColor="#fff"
+                style={adminStyles.modalSaveButton}
+                onPress={async () => {
+                  let nextAvatarUrl = profileDraft.avatarUrl;
+                  let uploadedAvatarUrl: string | undefined;
+                  const previousAvatarUrl = profile?.avatarUrl;
+
+                  if (pendingAvatar) {
+                    uploadedAvatarUrl = await uploadProfileAvatar(pendingAvatar);
+                    nextAvatarUrl = uploadedAvatarUrl;
+                  }
+
+                  await updateProfile({
+                    ...profileDraft,
+                    avatarUrl: nextAvatarUrl,
+                  });
+
+                  if (uploadedAvatarUrl && useAppStore.getState().errorMessage) {
+                    await removeProfileAvatarByUrl(uploadedAvatarUrl);
+                  }
+
+                  if (
+                    !useAppStore.getState().errorMessage &&
+                    previousAvatarUrl &&
+                    previousAvatarUrl !== nextAvatarUrl
+                  ) {
+                    await removeProfileAvatarByUrl(previousAvatarUrl);
+                  }
+
+                  if (!useAppStore.getState().errorMessage) {
+                    closeProfileEditor();
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+            </View>
+          </ScrollView>
+        </Modal>
+
+        <Modal visible={isPasswordModalOpen} onDismiss={closePasswordEditor} contentContainerStyle={adminStyles.modalCard}>
+          <ScrollView
+            style={adminStyles.modalScroll}
+            contentContainerStyle={adminStyles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            <View style={adminStyles.modalHeaderRow}>
+              <Text style={adminStyles.modalTitle}>Alterar senha</Text>
+              <Pressable onPress={closePasswordEditor}>
+                <Feather name="x" size={24} color="#6b5553" />
+              </Pressable>
+            </View>
+            <Text style={adminStyles.helperText}>
+              Defina uma nova senha para continuar acessando sua conta com seguranÃ§a.
+            </Text>
+            <View style={sharedStyles.accountFormStack}>
+              <PasswordEditorFields draft={passwordDraft} onChange={setPasswordDraft} />
+            </View>
+            <View style={adminStyles.modalFooterActions}>
+              <Button
+                mode="outlined"
+                style={adminStyles.modalGhostButton}
+                textColor="#2f1d1e"
+                onPress={closePasswordEditor}
+              >
+                Cancelar
+              </Button>
+              <Button
+                mode="contained"
+                loading={isLoading}
+                disabled={isLoading}
+                buttonColor={palette.green}
+                textColor="#fff"
+                style={adminStyles.modalSaveButton}
+                onPress={async () => {
+                  await changePassword(passwordDraft.password, passwordDraft.confirmPassword);
+                  if (!useAppStore.getState().errorMessage) {
+                    closePasswordEditor();
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+            </View>
+          </ScrollView>
+        </Modal>
+      </Portal>
+    </>
   );
 }
+*/
 
 function AdminBottomTabs({
   activeTab,
@@ -700,6 +996,288 @@ function AdminBottomTabs({
   );
 }
 
+function AdminProfileSettingsScreen() {
+  const profile = useAppStore((state) => state.profile);
+  const signOut = useAppStore((state) => state.signOut);
+  const updateProfile = useAppStore((state) => state.updateProfile);
+  const changePassword = useAppStore((state) => state.changePassword);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const products = useAdminStore((state) => state.products);
+  const orders = useAdminStore((state) => state.orders);
+  const couriers = useAdminStore((state) => state.couriers);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileEditorDraft>({
+    fullName: "",
+    phone: "",
+    cpf: "",
+    avatarUrl: "",
+  });
+  const [passwordDraft, setPasswordDraft] = useState<PasswordEditorDraft>({
+    password: "",
+    confirmPassword: "",
+  });
+  const [pendingAvatar, setPendingAvatar] = useState<UploadableProfileAvatar | null>(null);
+
+  const openProfileEditor = () => {
+    setProfileDraft({
+      fullName: profile?.fullName ?? "",
+      phone: profile?.phone ?? "",
+      cpf: profile?.cpf ?? "",
+      avatarUrl: profile?.avatarUrl ?? "",
+    });
+    setPendingAvatar(null);
+    setIsProfileModalOpen(true);
+  };
+
+  const closeProfileEditor = () => {
+    setPendingAvatar(null);
+    setIsProfileModalOpen(false);
+  };
+
+  const openPasswordEditor = () => {
+    setPasswordDraft({
+      password: "",
+      confirmPassword: "",
+    });
+    setIsPasswordModalOpen(true);
+  };
+
+  const closePasswordEditor = () => {
+    setIsPasswordModalOpen(false);
+  };
+
+  const pickAvatarFromGallery = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    if (!asset?.base64) {
+      useAppStore.setState({ errorMessage: "Nao foi possivel ler a foto selecionada." });
+      return;
+    }
+
+    setPendingAvatar({
+      uri: asset.uri,
+      base64: asset.base64,
+      mimeType: asset.mimeType,
+      fileName: asset.fileName,
+    });
+  };
+
+  const removeAvatarSelection = () => {
+    setPendingAvatar(null);
+    setProfileDraft((current) => ({ ...current, avatarUrl: "" }));
+  };
+
+  const avatarPreviewUri = pendingAvatar?.uri ?? profileDraft.avatarUrl;
+
+  return (
+    <>
+      <ScrollView contentContainerStyle={adminStyles.content}>
+        <AdminHero
+          icon={svgIcons.ProfileIcon}
+          title="Meu Perfil"
+          subtitle="Suas informações"
+        />
+
+        <View style={adminStyles.profileCard}>
+          <View style={adminStyles.profileAvatar}>
+            {profile?.avatarUrl ? (
+              <Image source={{ uri: profile.avatarUrl }} style={adminStyles.courierAvatarImage} />
+            ) : (
+              <Text style={adminStyles.profileAvatarText}>{getInitials(profile?.fullName)}</Text>
+            )}
+          </View>
+          <Text style={adminStyles.profileName}>{profile?.fullName ?? "Administrador"}</Text>
+          <Text style={adminStyles.profileRole}>Administradora Geral</Text>
+          <Button
+            mode="contained"
+            buttonColor={palette.green}
+            textColor="#fff"
+            icon="pencil-outline"
+            style={adminStyles.profileButton}
+            onPress={openProfileEditor}
+          >
+            Editar perfil
+          </Button>
+        </View>
+
+        <View style={adminStyles.statsRow}>
+          <StatCard value={String(products.length)} label="Produtos" />
+          <StatCard value={orders.length.toLocaleString("pt-BR")} label="Pedidos" />
+          <StatCard value={String(couriers.length)} label="Entreg." />
+        </View>
+
+        <View style={adminStyles.infoSection}>
+          <Text style={adminStyles.sectionTitleDark}>Informações pessoais</Text>
+          <ProfileInfoItem icon="phone" label="Telefone" value={profile?.phone || "Não informado"} />
+          <ProfileInfoItem icon="credit-card" label="CPF" value={profile?.cpf || "Não informado"} />
+          <ProfileInfoItem icon="calendar" label="Membro desde" value={profile?.createdAt ? formatDate(profile.createdAt) : "—"} />
+        </View>
+
+        <View style={adminStyles.securitySection}>
+          <Text style={adminStyles.sectionTitleDark}>Segurança</Text>
+          <Text style={adminStyles.sectionSubtitle}>Mantenha sua conta protegida</Text>
+          <Pressable style={adminStyles.securityButton} onPress={openPasswordEditor}>
+            <Text style={adminStyles.securityButtonText}>Alterar senha</Text>
+          </Pressable>
+          <View style={adminStyles.securityButton}>
+            <Text style={adminStyles.securityButtonText}>Autenticação em duas etapas</Text>
+          </View>
+          <Pressable style={adminStyles.securityButton} onPress={() => void signOut()}>
+            <Text style={adminStyles.securityButtonDanger}>Sair da conta</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      <Portal>
+        <Modal visible={isProfileModalOpen} onDismiss={closeProfileEditor} contentContainerStyle={sharedStyles.accountModalContainer}>
+          <View style={sharedStyles.accountModalCard}>
+          <ScrollView
+            style={sharedStyles.accountModalScroll}
+            contentContainerStyle={sharedStyles.accountModalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            <View style={adminStyles.modalHeaderRow}>
+              <Text style={sharedStyles.accountModalTitle}>Editar perfil</Text>
+              <Pressable onPress={closeProfileEditor}>
+                <Feather name="x" size={24} color={palette.text} />
+              </Pressable>
+            </View>
+            <Text style={sharedStyles.accountModalSubtitle}>
+              Atualize ou complemente os dados do seu perfil.
+            </Text>
+            <View style={sharedStyles.accountFormStack}>
+              <ProfileEditorFields
+                draft={profileDraft}
+                avatarPreviewUri={avatarPreviewUri}
+                loading={isLoading}
+                onPickAvatar={() => void pickAvatarFromGallery()}
+                onRemoveAvatar={removeAvatarSelection}
+                onChange={setProfileDraft}
+              />
+            </View>
+            <View style={adminStyles.modalFooterActions}>
+              <Button
+                mode="outlined"
+                style={adminStyles.modalGhostButton}
+                textColor={palette.text}
+                onPress={closeProfileEditor}
+              >
+                Cancelar
+              </Button>
+              <Button
+                mode="contained"
+                loading={isLoading}
+                disabled={isLoading}
+                buttonColor={palette.green}
+                textColor="#fff"
+                style={adminStyles.modalSaveButton}
+                onPress={async () => {
+                  let nextAvatarUrl = profileDraft.avatarUrl;
+                  let uploadedAvatarUrl: string | undefined;
+                  const previousAvatarUrl = profile?.avatarUrl;
+
+                  if (pendingAvatar) {
+                    uploadedAvatarUrl = await uploadProfileAvatar(pendingAvatar);
+                    nextAvatarUrl = uploadedAvatarUrl;
+                  }
+
+                  await updateProfile({
+                    ...profileDraft,
+                    avatarUrl: nextAvatarUrl,
+                  });
+
+                  if (uploadedAvatarUrl && useAppStore.getState().errorMessage) {
+                    await removeProfileAvatarByUrl(uploadedAvatarUrl);
+                  }
+
+                  if (
+                    !useAppStore.getState().errorMessage &&
+                    previousAvatarUrl &&
+                    previousAvatarUrl !== nextAvatarUrl
+                  ) {
+                    await removeProfileAvatarByUrl(previousAvatarUrl);
+                  }
+
+                  if (!useAppStore.getState().errorMessage) {
+                    closeProfileEditor();
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+            </View>
+          </ScrollView>
+          </View>
+        </Modal>
+
+        <Modal visible={isPasswordModalOpen} onDismiss={closePasswordEditor} contentContainerStyle={sharedStyles.accountModalContainer}>
+          <View style={sharedStyles.accountModalCard}>
+          <ScrollView
+            style={sharedStyles.accountModalScroll}
+            contentContainerStyle={sharedStyles.accountModalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            <View style={adminStyles.modalHeaderRow}>
+              <Text style={sharedStyles.accountModalTitle}>Alterar senha</Text>
+              <Pressable onPress={closePasswordEditor}>
+                <Feather name="x" size={24} color={palette.text} />
+              </Pressable>
+            </View>
+            <Text style={sharedStyles.accountModalSubtitle}>
+              Defina uma nova senha para continuar acessando sua conta com segurança.
+            </Text>
+            <View style={sharedStyles.accountFormStack}>
+              <PasswordEditorFields draft={passwordDraft} onChange={setPasswordDraft} />
+            </View>
+            <View style={adminStyles.modalFooterActions}>
+              <Button
+                mode="outlined"
+                style={adminStyles.modalGhostButton}
+                textColor={palette.text}
+                onPress={closePasswordEditor}
+              >
+                Cancelar
+              </Button>
+              <Button
+                mode="contained"
+                loading={isLoading}
+                disabled={isLoading}
+                buttonColor={palette.green}
+                textColor="#fff"
+                style={adminStyles.modalSaveButton}
+                onPress={async () => {
+                  await changePassword(passwordDraft.password, passwordDraft.confirmPassword);
+                  if (!useAppStore.getState().errorMessage) {
+                    closePasswordEditor();
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+            </View>
+          </ScrollView>
+          </View>
+        </Modal>
+      </Portal>
+    </>
+  );
+}
+
 function AdminHero({
   icon,
   title,
@@ -717,7 +1295,11 @@ function AdminHero({
       <View style={adminStyles.heroTop}>
         <View style={adminStyles.heroBrand}>
           <View style={adminStyles.heroBrandIcon}>
-            <AppSvgIcon Icon={icon} size={26} color="#fff" />
+            {profile?.avatarUrl ? (
+              <Image source={{ uri: profile.avatarUrl }} style={adminStyles.heroUserAvatar} />
+            ) : (
+              <AppSvgIcon Icon={icon} size={26} color="#fff" />
+            )}
           </View>
           <View>
             <Text style={adminStyles.heroBrandTitle}>FreshAdmin</Text>
@@ -725,8 +1307,10 @@ function AdminHero({
           </View>
         </View>
         <View style={adminStyles.heroNotification}>
-          <Feather name="bell" size={20} color="#fff" />
-          <View style={adminStyles.heroNotificationDot} />
+          <>
+            <Feather name="bell" size={20} color="#fff" />
+            <View style={adminStyles.heroNotificationDot} />
+          </>
         </View>
       </View>
       <Text style={adminStyles.heroTitle}>{title}</Text>
@@ -743,39 +1327,126 @@ function AdminProductFormModal({
   onCancel,
   onSave,
 }: {
-  form: AdminProductForm;
+  form: EditableAdminProductForm;
   categories: Array<{ id: string; name: string }>;
   loading: boolean;
-  onChange: (value: AdminProductForm) => void;
+  onChange: (value: EditableAdminProductForm) => void;
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const [isPickingImage, setIsPickingImage] = useState(false);
+  const previewUri = form.pendingImage?.uri ?? form.imageUrl;
+
+  const handlePickImage = async () => {
+    setIsPickingImage(true);
+
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        throw new Error("Permita o acesso a galeria para selecionar a imagem do produto.");
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets[0];
+
+      if (!asset?.base64) {
+        throw new Error("Nao foi possivel processar a imagem selecionada.");
+      }
+
+      onChange({
+        ...form,
+        pendingImage: {
+          uri: asset.uri,
+          base64: asset.base64,
+          fileName: asset.fileName,
+          mimeType: asset.mimeType,
+        },
+      });
+    } catch (error) {
+      useAppStore.setState({
+        errorMessage: error instanceof Error ? error.message : "Nao foi possivel selecionar a imagem.",
+        statusMessage: undefined,
+      });
+    } finally {
+      setIsPickingImage(false);
+    }
+  };
+
   return (
-    <>
+    <ScrollView
+      style={adminStyles.modalScroll}
+      contentContainerStyle={adminStyles.modalScrollContent}
+      showsVerticalScrollIndicator
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={adminStyles.modalHeaderRow}>
         <Text style={adminStyles.modalTitle}>{form.id ? "Editar produto" : "Novo produto"}</Text>
         <Pressable onPress={onCancel}>
           <Feather name="x" size={24} color="#6b5553" />
         </Pressable>
       </View>
-      <View style={adminStyles.productFormRow}>
+      <Text style={adminStyles.fieldLabel}>Imagem do produto</Text>
+      <View style={adminStyles.imageUploadCard}>
         <View style={adminStyles.imageField}>
-          <Text style={adminStyles.fieldLabel}>Imagem</Text>
           <View style={adminStyles.imageFieldPreview}>
-            {form.imageUrl ? (
-              <Image source={{ uri: form.imageUrl }} style={adminStyles.imageFieldPreviewImage} />
+            {previewUri ? (
+              <Image source={{ uri: previewUri }} style={adminStyles.imageFieldPreviewImage} />
             ) : (
-              <AppSvgIcon Icon={svgIcons.AdminProductsIcon} size={24} color="#9b7b78" />
+              <AppSvgIcon Icon={svgIcons.AdminProductsIcon} size={28} color="#9b7b78" />
             )}
           </View>
         </View>
         <View style={adminStyles.flexFill}>
-          <AdminField label="URL da imagem" value={form.imageUrl} onChangeText={(value) => onChange({ ...form, imageUrl: value })} />
+          <Text style={adminStyles.imageUploadTitle}>Arquivo da galeria</Text>
+          <View style={adminStyles.imageUploadActions}>
+            <Button
+              mode="contained"
+              buttonColor={palette.green}
+              textColor="#fff"
+              style={adminStyles.imageUploadButton}
+              icon="image-outline"
+              loading={isPickingImage}
+              disabled={loading || isPickingImage}
+              onPress={() => void handlePickImage()}
+            >
+              {previewUri ? "Trocar imagem" : "Selecionar imagem"}
+            </Button>
+            {previewUri ? (
+              <Button
+                mode="text"
+                textColor={palette.green}
+                compact
+                onPress={() => onChange({ ...form, imageUrl: "", pendingImage: null })}
+              >
+                Remover imagem
+              </Button>
+            ) : null}
+            <Text style={adminStyles.imageUploadHint}>
+              A imagem sera enviada ao Supabase Storage quando voce salvar o produto.
+            </Text>
+          </View>
         </View>
       </View>
       <AdminField label="Nome" value={form.name} onChangeText={(value) => onChange({ ...form, name: value })} />
       <Text style={adminStyles.fieldLabel}>Categoria</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={adminStyles.modalChipRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={adminStyles.modalChipScroller}
+        contentContainerStyle={adminStyles.modalChipRow}
+      >
         {categories.map((category) => {
           const active = category.id === form.categoryId;
           return (
@@ -791,7 +1462,11 @@ function AdminProductFormModal({
       </ScrollView>
       <View style={adminStyles.formSplitRow}>
         <View style={adminStyles.flexFill}>
-          <AdminField label="SKU" value={form.sku} onChangeText={(value) => onChange({ ...form, sku: value.toUpperCase() })} />
+          <AdminField
+            label="Código do produto"
+            value={form.sku}
+            onChangeText={(value) => onChange({ ...form, sku: value.toUpperCase() })}
+          />
         </View>
       </View>
       <View style={adminStyles.formTripleRow}>
@@ -799,8 +1474,13 @@ function AdminProductFormModal({
           <AdminField label="Preço (R$)" value={form.price} keyboardType="decimal-pad" onChangeText={(value) => onChange({ ...form, price: value })} />
         </View>
         <View style={adminStyles.flexFill}>
+          <AdminField label="Desconto (R$)" value={form.discount} keyboardType="decimal-pad" onChangeText={(value) => onChange({ ...form, discount: value })} />
+        </View>
+        <View style={adminStyles.flexFill}>
           <AdminField label="Estoque" value={form.stock} keyboardType="number-pad" onChangeText={(value) => onChange({ ...form, stock: value })} />
         </View>
+      </View>
+      <View style={adminStyles.formSplitRow}>
         <View style={adminStyles.unitField}>
           <AdminField label="Unidade" value={form.unitLabel} onChangeText={(value) => onChange({ ...form, unitLabel: value })} />
         </View>
@@ -821,7 +1501,7 @@ function AdminProductFormModal({
           Salvar
         </Button>
       </View>
-    </>
+    </ScrollView>
   );
 }
 
@@ -1104,6 +1784,7 @@ const adminStyles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   heroBrandTitle: {
     color: "#ffecec",
@@ -1120,6 +1801,11 @@ const adminStyles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  heroUserAvatar: {
+    width: "100%",
+    height: "100%",
   },
   heroNotificationDot: {
     width: 10,
@@ -1174,11 +1860,14 @@ const adminStyles = StyleSheet.create({
     paddingHorizontal: 22,
     gap: 10,
     paddingTop: 18,
-    paddingBottom: 10,
+    paddingBottom: 18,
   },
   filterChip: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 52,
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderRadius: 24,
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -1191,6 +1880,7 @@ const adminStyles = StyleSheet.create({
   filterChipText: {
     color: "#402d2d",
     fontSize: 16,
+    lineHeight: 20,
   },
   filterChipTextActive: {
     color: "#fff",
@@ -1247,6 +1937,12 @@ const adminStyles = StyleSheet.create({
     color: palette.green,
     marginTop: 8,
   },
+  productOldPrice: {
+    color: "#a88b8a",
+    fontSize: 13,
+    marginTop: 4,
+    textDecorationLine: "line-through",
+  },
   productUnit: {
     fontSize: 14,
     color: "#7a5f5e",
@@ -1288,6 +1984,27 @@ const adminStyles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 24,
     padding: 22,
+    maxHeight: "92%",
+  },
+  detailModalContainer: {
+    marginHorizontal: 16,
+  },
+  detailModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 12,
+    maxHeight: "84%",
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  modalScrollContent: {
+    paddingBottom: 8,
+  },
+  detailModalContent: {
+    paddingBottom: 4,
   },
   modalHeaderRow: {
     flexDirection: "row",
@@ -1306,12 +2023,12 @@ const adminStyles = StyleSheet.create({
   detailTop: {
     flexDirection: "row",
     gap: 16,
-    marginTop: 22,
-    alignItems: "center",
+    marginTop: 18,
+    alignItems: "flex-start",
   },
   detailImageBox: {
-    width: 102,
-    height: 102,
+    width: 112,
+    height: 112,
     borderRadius: 22,
     backgroundColor: "#f8f2f2",
     alignItems: "center",
@@ -1332,12 +2049,12 @@ const adminStyles = StyleSheet.create({
   detailSku: {
     fontSize: 16,
     color: "#8b7270",
-    marginTop: 2,
+    marginTop: 4,
   },
   detailStatRow: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 24,
+    gap: 10,
+    marginTop: 18,
   },
   detailStatCard: {
     flex: 1,
@@ -1367,10 +2084,15 @@ const adminStyles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 28,
     marginTop: 12,
-    marginBottom: 24,
+    marginBottom: 18,
   },
   modalPrimaryAction: {
-    height: 54,
+    height: 56,
+  },
+  detailEditButton: {
+    marginTop: 8,
+    marginBottom: 2,
+    borderRadius: 18,
   },
   productFormRow: {
     flexDirection: "row",
@@ -1378,11 +2100,22 @@ const adminStyles = StyleSheet.create({
     marginTop: 16,
     alignItems: "flex-end",
   },
+  imageUploadCard: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 2,
+    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#f0dddd",
+    backgroundColor: "#fffafa",
+  },
   imageField: {
     width: 110,
   },
   imageFieldPreview: {
-    height: 84,
+    width: 110,
+    height: 110,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#eadcdb",
@@ -1395,6 +2128,25 @@ const adminStyles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  imageUploadActions: {
+    gap: 10,
+    marginTop: 6,
+  },
+  imageUploadTitle: {
+    color: "#6f5755",
+    fontSize: 15,
+    marginBottom: 2,
+  },
+  imageUploadButton: {
+    alignSelf: "flex-start",
+    borderRadius: 16,
+  },
+  imageUploadHint: {
+    color: "#7d6463",
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: "92%",
+  },
   fieldBlock: {
     marginTop: 16,
   },
@@ -1406,14 +2158,22 @@ const adminStyles = StyleSheet.create({
   fieldInput: {
     backgroundColor: "#fff",
   },
+  modalChipScroller: {
+    marginBottom: 10,
+  },
   modalChipRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 10,
+    paddingTop: 4,
+    paddingBottom: 16,
+    paddingRight: 16,
   },
   modalChip: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 50,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 18,
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -1425,9 +2185,11 @@ const adminStyles = StyleSheet.create({
   },
   modalChipText: {
     color: "#4a3534",
+    fontSize: 15,
+    lineHeight: 20,
   },
   modalChipTextActive: {
-    color: palette.green,
+    color: "#2f1d1e",
   },
   formSplitRow: {
     flexDirection: "row",
@@ -1449,6 +2211,7 @@ const adminStyles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 12,
     marginTop: 22,
+    paddingTop: 4,
   },
   modalGhostButton: {
     borderColor: "#eadcdb",

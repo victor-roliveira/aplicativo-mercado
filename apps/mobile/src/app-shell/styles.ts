@@ -219,6 +219,131 @@ export const styles = StyleSheet.create({
   feedbackText: {
     color: palette.text,
   },
+  accountModalContainer: {
+    marginHorizontal: 16,
+  },
+  accountModalCard: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    maxHeight: "92%",
+    padding: 20,
+  },
+  accountModalScroll: {
+    flexGrow: 0,
+  },
+  accountModalHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  accountModalTitle: {
+    color: palette.text,
+    fontSize: 28,
+  },
+  accountModalSubtitle: {
+    color: palette.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 18,
+    marginTop: 10,
+  },
+  accountModalContent: {
+    paddingBottom: 8,
+  },
+  accountFormStack: {
+    gap: 14,
+  },
+  accountAvatarCard: {
+    backgroundColor: palette.cardSoft,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 14,
+    padding: 14,
+  },
+  accountAvatarRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+  },
+  accountAvatarPreview: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 92,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 92,
+  },
+  accountAvatarPreviewImage: {
+    height: "100%",
+    width: "100%",
+  },
+  accountAvatarFallback: {
+    color: palette.muted,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  accountAvatarActions: {
+    flex: 1,
+    gap: 10,
+  },
+  accountAvatarTitle: {
+    color: palette.text,
+    fontSize: 16,
+  },
+  accountAvatarButtons: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  accountAvatarButton: {
+    borderRadius: 14,
+  },
+  accountAvatarHint: {
+    color: palette.muted,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  accountReadonlyCard: {
+    backgroundColor: palette.cardSoft,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+  },
+  accountReadonlyLabel: {
+    color: palette.muted,
+    fontSize: 14,
+  },
+  accountReadonlyValue: {
+    color: palette.text,
+    fontSize: 16,
+    marginTop: 6,
+  },
+  accountHelperText: {
+    color: palette.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  accountModalFooter: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 22,
+  },
+  accountModalSecondaryButton: {
+    borderRadius: 14,
+    flex: 1,
+  },
+  accountModalPrimaryButton: {
+    borderRadius: 14,
+    flex: 1,
+  },
   screenContent: {
     flexGrow: 1,
     paddingBottom: 118,
@@ -315,7 +440,12 @@ export const styles = StyleSheet.create({
     borderRadius: 25,
     height: 50,
     justifyContent: "center",
+    overflow: "hidden",
     width: 50,
+  },
+  headerAvatarImage: {
+    height: "100%",
+    width: "100%",
   },
   notificationDot: {
     backgroundColor: palette.green,
