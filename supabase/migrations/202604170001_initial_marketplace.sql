@@ -41,6 +41,7 @@ create table if not exists public.profiles (
   driver_license text,
   role public.app_role not null default 'CUSTOMER',
   is_active boolean not null default true,
+  is_approved boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   constraint cpf_length check (cpf is null or char_length(regexp_replace(cpf, '\D', '', 'g')) = 11),
@@ -292,7 +293,7 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, full_name, cpf, phone, vehicle_plate, driver_license, role)
+  insert into public.profiles (id, full_name, cpf, phone, vehicle_plate, driver_license, role, is_active, is_approved)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', 'Novo usuario'),
@@ -304,6 +305,16 @@ begin
       when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
         then 'COURIER'::public.app_role
       else 'CUSTOMER'::public.app_role
+    end,
+    case
+      when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
+        then false
+      else true
+    end,
+    case
+      when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
+        then false
+      else true
     end
   )
   on conflict (id) do nothing;
@@ -527,8 +538,24 @@ begin
     raise exception 'Somente administradores podem atribuir entregadores';
   end if;
 
-  if not exists (select 1 from public.profiles where id = p_courier_id and role = 'COURIER') then
-    raise exception 'Entregador invalido';
+  if not exists (
+    select 1
+    from public.orders
+    where id = p_order_id
+      and status = 'PROCESSING'
+  ) then
+    raise exception 'Pedido invalido para atribuicao';
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles
+    where id = p_courier_id
+      and role = 'COURIER'
+      and is_active = true
+      and coalesce(is_approved, false) = true
+  ) then
+    raise exception 'Entregador invalido ou ainda nao aprovado';
   end if;
 
   update public.orders
@@ -751,7 +778,8 @@ before update on public.carts
 for each row execute procedure public.touch_updated_at();
 
 create unique index if not exists carts_one_open_cart_per_user
-on public.carts (user_id, status);
+on public.carts (user_id)
+where status = 'OPEN';
 
 create index if not exists addresses_user_id_last_used_idx
 on public.addresses (user_id, last_used_at desc, updated_at desc);

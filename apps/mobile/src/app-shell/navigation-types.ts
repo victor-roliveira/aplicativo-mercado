@@ -3,3 +3,4 @@ export type AppTab = "home" | "cart" | "orders" | "profile";
 export type ProfileSection = "overview" | "addresses";
 export type RegistrationKind = "customer" | "courier";
 export type AdminTab = "products" | "couriers" | "orders" | "profile";
+export type CourierTab = "orders" | "profile";

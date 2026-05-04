@@ -77,12 +77,14 @@ export function CartScreen({ onCheckout }: { onCheckout: () => void }) {
             <View style={styles.summaryDivider} />
             <SummaryRow label="Total" value={formatCurrency(total)} large />
           </View>
-          <PrimaryButton
-            label="Finalizar pedido"
-            loading={isLoading}
-            disabled={isLoading}
-            onPress={onCheckout}
-          />
+          <View style={styles.cartCheckoutAction}>
+            <PrimaryButton
+              label="Finalizar pedido"
+              loading={isLoading}
+              disabled={isLoading}
+              onPress={onCheckout}
+            />
+          </View>
         </>
       )}
     </ScrollView>

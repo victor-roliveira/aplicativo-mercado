@@ -8,14 +8,15 @@ import type {
   AdminProductForm,
 } from "../../services/admin-api";
 import {
-  advanceAdminOrderToDelivery,
   approveAdminOrder,
+  assignAdminOrderCourier,
   deleteAdminCourier,
   deleteAdminProduct,
   fetchAdminCategories,
   fetchAdminCouriers,
   fetchAdminOrders,
   fetchAdminProducts,
+  markAdminOrderOutForDelivery,
   rejectAdminOrder,
   saveAdminCourier,
   saveAdminProduct,
@@ -38,7 +39,8 @@ type AdminState = {
   deleteCourier: (courierId: string) => Promise<void>;
   approveOrder: (orderId: string) => Promise<void>;
   rejectOrder: (orderId: string) => Promise<void>;
-  advanceOrder: (orderId: string, courierId: string) => Promise<void>;
+  assignOrder: (orderId: string, courierId: string) => Promise<void>;
+  advanceOrder: (orderId: string) => Promise<void>;
 };
 
 function setFeedback(message: string) {
@@ -189,14 +191,27 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       setError(error);
     }
   },
-  advanceOrder: async (orderId, courierId) => {
+  assignOrder: async (orderId, courierId) => {
     set({ isLoading: true });
 
     try {
-      await advanceAdminOrderToDelivery(orderId, courierId);
+      await assignAdminOrderCourier(orderId, courierId);
       const [orders, couriers] = await Promise.all([fetchAdminOrders(), fetchAdminCouriers()]);
       set({ orders, couriers, isLoading: false });
-      setFeedback("Pedido saiu para entrega.");
+      setFeedback("Entregador atribuido com sucesso.");
+    } catch (error) {
+      set({ isLoading: false });
+      setError(error);
+    }
+  },
+  advanceOrder: async (orderId) => {
+    set({ isLoading: true });
+
+    try {
+      await markAdminOrderOutForDelivery(orderId);
+      const [orders, couriers] = await Promise.all([fetchAdminOrders(), fetchAdminCouriers()]);
+      set({ orders, couriers, isLoading: false });
+      setFeedback("Pedido marcado como saiu para entrega.");
     } catch (error) {
       set({ isLoading: false });
       setError(error);

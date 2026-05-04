@@ -40,7 +40,7 @@ export async function uploadAdminProductImage(asset: UploadableProductImage) {
   return uploadProductImage(asset);
 }
 
-export type AdminCourierStatus = "DELIVERING" | "AVAILABLE" | "INACTIVE";
+export type AdminCourierStatus = "PENDING" | "DELIVERING" | "AVAILABLE" | "INACTIVE";
 
 export type AdminCourier = {
   id: string;
@@ -54,6 +54,7 @@ export type AdminCourier = {
   deliveriesCount: number;
   status: AdminCourierStatus;
   isActive: boolean;
+  isApproved: boolean;
 };
 
 export type AdminCourierForm = {
@@ -64,7 +65,7 @@ export type AdminCourierForm = {
   contactEmail: string;
   vehicleType: string;
   vehiclePlate: string;
-  status: "AVAILABLE" | "INACTIVE";
+  status: "PENDING" | "AVAILABLE" | "INACTIVE";
 };
 
 export type AdminOrderItem = {
@@ -127,6 +128,7 @@ type CourierRow = {
   rating: number | null;
   vehicle_type: string | null;
   vehicle_plate: string | null;
+  is_approved: boolean | null;
   is_active: boolean;
   assigned_orders?: Array<{ status: OrderStatus | null }> | null;
 };
@@ -391,7 +393,7 @@ export async function fetchAdminCouriers(): Promise<AdminCourier[]> {
   const client = getClient();
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, phone, contact_email, avatar_url, rating, vehicle_type, vehicle_plate, is_active, assigned_orders:orders!orders_assigned_courier_id_fkey(status)")
+    .select("id, full_name, phone, contact_email, avatar_url, rating, vehicle_type, vehicle_plate, is_approved, is_active, assigned_orders:orders!orders_assigned_courier_id_fkey(status)")
     .eq("role", "COURIER")
     .order("full_name", { ascending: true });
 
@@ -414,8 +416,15 @@ export async function fetchAdminCouriers(): Promise<AdminCourier[]> {
       vehicleType: courier.vehicle_type ?? undefined,
       vehiclePlate: courier.vehicle_plate ?? undefined,
       deliveriesCount,
-      status: hasOrderInTransit ? "DELIVERING" : courier.is_active ? "AVAILABLE" : "INACTIVE",
+      status: hasOrderInTransit
+        ? "DELIVERING"
+        : !courier.is_approved
+          ? "PENDING"
+          : courier.is_active
+            ? "AVAILABLE"
+            : "INACTIVE",
       isActive: courier.is_active,
+      isApproved: courier.is_approved ?? false,
     };
   });
 }
@@ -429,6 +438,7 @@ export async function saveAdminCourier(input: AdminCourierForm): Promise<AdminCo
     avatar_url: input.avatarUrl.trim() || null,
     vehicle_type: input.vehicleType.trim() || null,
     vehicle_plate: input.vehiclePlate.trim().toUpperCase() || null,
+    is_approved: input.status !== "PENDING",
     is_active: input.status === "AVAILABLE",
   };
 
@@ -576,18 +586,21 @@ export async function rejectAdminOrder(orderId: string) {
   }
 }
 
-export async function advanceAdminOrderToDelivery(orderId: string, courierId: string) {
+export async function assignAdminOrderCourier(orderId: string, courierId: string) {
   const client = getClient();
 
-  const { error: assignError } = await client.rpc("assign_courier", {
+  const { error } = await client.rpc("assign_courier", {
     p_order_id: orderId,
     p_courier_id: courierId,
   });
 
-  if (assignError) {
-    throw assignError;
+  if (error) {
+    throw error;
   }
+}
 
+export async function markAdminOrderOutForDelivery(orderId: string) {
+  const client = getClient();
   const { error } = await client.rpc("admin_update_order_status", {
     p_order_id: orderId,
     p_status: "OUT_FOR_DELIVERY",

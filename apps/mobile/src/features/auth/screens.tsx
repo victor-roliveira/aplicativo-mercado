@@ -70,6 +70,7 @@ export function AuthScreen({
   onModeChange: (mode: PublicScreen) => void;
 }) {
   const signIn = useAppStore((state) => state.signIn);
+  const signInWithGoogle = useAppStore((state) => state.signInWithGoogle);
   const signUp = useAppStore((state) => state.signUp);
   const requestPasswordReset = useAppStore((state) => state.requestPasswordReset);
   const isLoading = useAppStore((state) => state.isLoading);
@@ -201,6 +202,21 @@ export function AuthScreen({
         disabled={isLoading}
         onPress={submit}
       />
+
+      {mode === "login" ? (
+        <Button
+          mode="contained-tonal"
+          icon="google"
+          textColor={palette.text}
+          buttonColor={palette.cardSoft}
+          contentStyle={styles.googleAuthButtonContent}
+          style={styles.googleAuthButton}
+          disabled={isLoading}
+          onPress={() => void signInWithGoogle()}
+        >
+          Entrar com Google
+        </Button>
+      ) : null}
 
       {mode === "register" && !isCourierRegistration ? (
         <Button

@@ -377,7 +377,7 @@ function AdminCouriersScreen() {
                 contactEmail: "",
                 vehicleType: "Moto",
                 vehiclePlate: "",
-                status: "AVAILABLE",
+                status: "PENDING",
               })
             }
           >
@@ -425,12 +425,36 @@ function AdminCouriersScreen() {
                       contactEmail: courier.contactEmail ?? "",
                       vehicleType: courier.vehicleType ?? "Moto",
                       vehiclePlate: courier.vehiclePlate ?? "",
-                      status: courier.isActive ? "AVAILABLE" : "INACTIVE",
+                      status: courier.status === "PENDING" ? "PENDING" : courier.isActive ? "AVAILABLE" : "INACTIVE",
                     })
                   }
                 >
                   Editar
                 </Button>
+                {courier.status === "PENDING" ? (
+                  <Button
+                    mode="contained"
+                    buttonColor="#22a447"
+                    textColor="#fff"
+                    style={adminStyles.inlineApproveButton}
+                    onPress={() =>
+                      void saveCourier({
+                        id: courier.id,
+                        avatarUrl: courier.avatarUrl ?? "",
+                        fullName: courier.fullName,
+                        phone: courier.phone ?? "",
+                        contactEmail: courier.contactEmail ?? "",
+                        vehicleType: courier.vehicleType ?? "Moto",
+                        vehiclePlate: courier.vehiclePlate ?? "",
+                        status: "AVAILABLE",
+                      })
+                    }
+                    loading={isLoading}
+                    disabled={isLoading}
+                  >
+                    Aprovar
+                  </Button>
+                ) : null}
                 <Pressable
                   style={adminStyles.deleteCircle}
                   onPress={() => void deleteCourier(courier.id)}
@@ -445,20 +469,22 @@ function AdminCouriersScreen() {
       </ScrollView>
 
       <Portal>
-        <Modal visible={Boolean(editingCourier)} onDismiss={() => setEditingCourier(null)} contentContainerStyle={adminStyles.modalCard}>
+        <Modal visible={Boolean(editingCourier)} onDismiss={() => setEditingCourier(null)} contentContainerStyle={adminStyles.modalContainer}>
           {editingCourier ? (
-            <AdminCourierFormModal
-              form={editingCourier}
-              loading={isLoading}
-              onChange={setEditingCourier}
-              onCancel={() => setEditingCourier(null)}
-              onSave={async () => {
-                await saveCourier(editingCourier);
-                if (!useAppStore.getState().errorMessage) {
-                  setEditingCourier(null);
-                }
-              }}
-            />
+            <View style={[adminStyles.modalSurface, adminStyles.courierModalSurface]}>
+              <AdminCourierFormModal
+                form={editingCourier}
+                loading={isLoading}
+                onChange={setEditingCourier}
+                onCancel={() => setEditingCourier(null)}
+                onSave={async () => {
+                  await saveCourier(editingCourier);
+                  if (!useAppStore.getState().errorMessage) {
+                    setEditingCourier(null);
+                  }
+                }}
+              />
+            </View>
           ) : null}
         </Modal>
       </Portal>
@@ -471,11 +497,16 @@ function AdminOrdersScreen() {
   const couriers = useAdminStore((state) => state.couriers);
   const approveOrder = useAdminStore((state) => state.approveOrder);
   const rejectOrder = useAdminStore((state) => state.rejectOrder);
+  const assignOrder = useAdminStore((state) => state.assignOrder);
   const advanceOrder = useAdminStore((state) => state.advanceOrder);
   const isLoading = useAdminStore((state) => state.isLoading);
   const [filter, setFilter] = useState<OrderFilter>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [selectedCourierId, setSelectedCourierId] = useState<string>("");
+  const availableCouriers = useMemo(
+    () => couriers.filter((courier) => courier.isApproved && courier.isActive),
+    [couriers],
+  );
 
   const filteredOrders = useMemo(
     () => (filter === "ALL" ? orders : orders.filter((order) => order.status === filter)),
@@ -488,8 +519,8 @@ function AdminOrdersScreen() {
       return;
     }
 
-    setSelectedCourierId(selectedOrder.assignedCourierId ?? couriers[0]?.id ?? "");
-  }, [couriers, selectedOrder]);
+    setSelectedCourierId(selectedOrder.assignedCourierId ?? availableCouriers[0]?.id ?? "");
+  }, [availableCouriers, selectedOrder]);
 
   return (
     <>
@@ -562,9 +593,15 @@ function AdminOrdersScreen() {
       </ScrollView>
 
       <Portal>
-        <Modal visible={Boolean(selectedOrder)} onDismiss={() => setSelectedOrder(null)} contentContainerStyle={[adminStyles.modalCard, adminStyles.orderModalCard]}>
+        <Modal visible={Boolean(selectedOrder)} onDismiss={() => setSelectedOrder(null)} contentContainerStyle={adminStyles.modalContainer}>
           {selectedOrder ? (
-            <>
+            <View style={[adminStyles.modalSurface, adminStyles.orderModalSurface]}>
+              <ScrollView
+                style={adminStyles.modalScroll}
+                contentContainerStyle={adminStyles.orderModalContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+              >
               <View style={adminStyles.modalHeaderRow}>
                 <Text style={adminStyles.modalTitle}>Pedido {selectedOrder.id}</Text>
                 <View style={adminStyles.modalHeaderRight}>
@@ -584,9 +621,15 @@ function AdminOrdersScreen() {
 
               <Text style={adminStyles.sectionLabel}>ITENS DO PEDIDO</Text>
               <View style={adminStyles.orderItemsCard}>
-                {selectedOrder.items.map((item) => (
-                  <View key={`${selectedOrder.rawOrderId}-${item.productName}`} style={adminStyles.orderItemRow}>
-                    <View>
+                {selectedOrder.items.map((item, index) => (
+                  <View
+                    key={`${selectedOrder.rawOrderId}-${item.productName}-${index}`}
+                    style={[
+                      adminStyles.orderItemRow,
+                      index === selectedOrder.items.length - 1 && adminStyles.orderItemRowLast,
+                    ]}
+                  >
+                    <View style={adminStyles.orderItemTextColumn}>
                       <Text style={adminStyles.orderItemName}>{item.productName}</Text>
                       <Text style={adminStyles.orderItemMeta}>
                         {item.quantity} × {formatCurrency(item.unitPriceInCents)}
@@ -604,8 +647,9 @@ function AdminOrdersScreen() {
               {selectedOrder.status === "PROCESSING" ? (
                 <>
                   <Text style={adminStyles.sectionLabel}>ENTREGADOR</Text>
-                  <View style={adminStyles.courierPicker}>
-                    {couriers.map((courier) => {
+                  {availableCouriers.length > 0 ? (
+                    <View style={adminStyles.courierPicker}>
+                    {availableCouriers.map((courier) => {
                       const active = courier.id === selectedCourierId;
                       return (
                         <Pressable
@@ -618,6 +662,21 @@ function AdminOrdersScreen() {
                         </Pressable>
                       );
                     })}
+                    </View>
+                  ) : (
+                    <View style={adminStyles.emptyModalNotice}>
+                      <Text style={adminStyles.emptyModalNoticeTitle}>Nenhum entregador aprovado disponivel</Text>
+                      <Text style={adminStyles.emptyModalNoticeText}>
+                        Aprove pelo menos um entregador para atribuir este pedido e liberar a saida para entrega.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : selectedOrder.assignedCourierName ? (
+                <>
+                  <Text style={adminStyles.sectionLabel}>ENTREGADOR ATRIBUIDO</Text>
+                  <View style={adminStyles.assignedCourierCard}>
+                    <Text style={adminStyles.assignedCourierName}>{selectedOrder.assignedCourierName}</Text>
                   </View>
                 </>
               ) : null}
@@ -658,27 +717,56 @@ function AdminOrdersScreen() {
                     </Button>
                   </>
                 ) : selectedOrder.status === "PROCESSING" ? (
-                  <Button
-                    mode="contained"
-                    buttonColor={palette.green}
-                    textColor="#fff"
-                    style={adminStyles.fullWidthAction}
-                    contentStyle={adminStyles.fullWidthActionContent}
-                    icon="arrow-right"
-                    loading={isLoading}
-                    disabled={!selectedCourierId}
-                    onPress={async () => {
-                      await advanceOrder(selectedOrder.rawOrderId, selectedCourierId);
-                      if (!useAppStore.getState().errorMessage) {
-                        setSelectedOrder(null);
-                      }
-                    }}
-                  >
-                    Próximo status: Saiu para entrega
-                  </Button>
+                  <>
+                    <Button
+                      mode="outlined"
+                      textColor={palette.green}
+                      style={adminStyles.modalRejectButton}
+                      icon="account-check-outline"
+                      loading={isLoading}
+                      disabled={!selectedCourierId || availableCouriers.length === 0}
+                      onPress={async () => {
+                        await assignOrder(selectedOrder.rawOrderId, selectedCourierId);
+                        if (!useAppStore.getState().errorMessage) {
+                          setSelectedOrder((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  assignedCourierId: selectedCourierId,
+                                  assignedCourierName:
+                                    availableCouriers.find((courier) => courier.id === selectedCourierId)?.fullName ??
+                                    current.assignedCourierName,
+                                }
+                              : current,
+                          );
+                        }
+                      }}
+                    >
+                      {selectedOrder.assignedCourierId ? "Atualizar entregador" : "Atribuir entregador"}
+                    </Button>
+                    <Button
+                      mode="contained"
+                      buttonColor={palette.green}
+                      textColor="#fff"
+                      style={adminStyles.fullWidthAction}
+                      contentStyle={adminStyles.fullWidthActionContent}
+                      icon="arrow-right"
+                      loading={isLoading}
+                      disabled={!selectedOrder.assignedCourierId && !selectedCourierId}
+                      onPress={async () => {
+                        await advanceOrder(selectedOrder.rawOrderId);
+                        if (!useAppStore.getState().errorMessage) {
+                          setSelectedOrder(null);
+                        }
+                      }}
+                    >
+                      Marcar como saiu para entrega
+                    </Button>
+                  </>
                 ) : null}
               </View>
-            </>
+              </ScrollView>
+            </View>
           ) : null}
         </Modal>
       </Portal>
@@ -1519,7 +1607,12 @@ function AdminCourierFormModal({
   onSave: () => void;
 }) {
   return (
-    <>
+    <ScrollView
+      style={adminStyles.modalScroll}
+      contentContainerStyle={adminStyles.modalScrollContent}
+      showsVerticalScrollIndicator
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={adminStyles.modalHeaderRow}>
         <Text style={adminStyles.modalTitle}>{form.id ? "Editar entregador" : "Novo entregador"}</Text>
         <Pressable onPress={onCancel}>
@@ -1563,7 +1656,7 @@ function AdminCourierFormModal({
       </View>
       <Text style={adminStyles.fieldLabel}>Status</Text>
       <View style={adminStyles.modalChipRow}>
-        {(["AVAILABLE", "INACTIVE"] as const).map((status) => {
+        {(["PENDING", "AVAILABLE", "INACTIVE"] as const).map((status) => {
           const active = form.status === status;
           return (
             <Pressable
@@ -1572,7 +1665,7 @@ function AdminCourierFormModal({
               onPress={() => onChange({ ...form, status })}
             >
               <Text style={[adminStyles.modalChipText, active && adminStyles.modalChipTextActive]}>
-                {status === "AVAILABLE" ? "Disponível" : "Inativo"}
+                {status === "PENDING" ? "Em analise" : status === "AVAILABLE" ? "Disponível" : "Inativo"}
               </Text>
             </Pressable>
           );
@@ -1586,7 +1679,7 @@ function AdminCourierFormModal({
           Salvar
         </Button>
       </View>
-    </>
+    </ScrollView>
   );
 }
 
@@ -1663,6 +1756,8 @@ function StatusPill({ status }: { status: AdminCourier["status"] }) {
   const config =
     status === "DELIVERING"
       ? { text: "Em entrega", backgroundColor: "#fff1dc", color: "#f09b1b" }
+      : status === "PENDING"
+        ? { text: "Em analise", backgroundColor: "#fff1dc", color: "#f09b1b" }
       : status === "AVAILABLE"
         ? { text: "Disponível", backgroundColor: "#e8f8eb", color: "#1aa34a" }
         : { text: "Inativo", backgroundColor: "#f5e6e6", color: "#a66c6c" };
@@ -1971,6 +2066,9 @@ const adminStyles = StyleSheet.create({
     flex: 1,
     borderRadius: 18,
   },
+  inlineApproveButton: {
+    borderRadius: 18,
+  },
   deleteCircle: {
     width: 42,
     height: 42,
@@ -1985,6 +2083,20 @@ const adminStyles = StyleSheet.create({
     borderRadius: 24,
     padding: 22,
     maxHeight: "92%",
+  },
+  modalContainer: {
+    marginHorizontal: 16,
+  },
+  modalSurface: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 16,
+    maxHeight: "92%",
+  },
+  courierModalSurface: {
+    maxHeight: "88%",
   },
   detailModalContainer: {
     marginHorizontal: 16,
@@ -2378,6 +2490,12 @@ const adminStyles = StyleSheet.create({
   orderModalCard: {
     maxHeight: "92%",
   },
+  orderModalSurface: {
+    maxHeight: "88%",
+  },
+  orderModalContent: {
+    paddingBottom: 8,
+  },
   orderInfoGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2429,6 +2547,13 @@ const adminStyles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#f4e8e8",
+    gap: 14,
+  },
+  orderItemRowLast: {
+    borderBottomWidth: 0,
+  },
+  orderItemTextColumn: {
+    flex: 1,
   },
   orderItemName: {
     color: "#2d1b1c",
@@ -2442,6 +2567,7 @@ const adminStyles = StyleSheet.create({
   orderItemTotal: {
     color: "#2d1b1c",
     fontSize: 17,
+    flexShrink: 0,
   },
   orderTotalRow: {
     flexDirection: "row",
@@ -2479,6 +2605,34 @@ const adminStyles = StyleSheet.create({
     color: "#7d6463",
     fontSize: 14,
     marginTop: 4,
+  },
+  emptyModalNotice: {
+    borderRadius: 18,
+    backgroundColor: "#fff6f6",
+    borderWidth: 1,
+    borderColor: "#f0dddd",
+    padding: 16,
+  },
+  emptyModalNoticeTitle: {
+    color: "#2d1b1c",
+    fontSize: 16,
+  },
+  emptyModalNoticeText: {
+    color: "#7d6463",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  assignedCourierCard: {
+    borderRadius: 18,
+    backgroundColor: "#fff6f6",
+    borderWidth: 1,
+    borderColor: "#f0dddd",
+    padding: 16,
+  },
+  assignedCourierName: {
+    color: "#2d1b1c",
+    fontSize: 16,
   },
   modalActionRow: {
     flexDirection: "row",

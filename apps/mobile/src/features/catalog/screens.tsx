@@ -79,7 +79,13 @@ export function HomeScreen({
   }, [productGroups, products, searchQuery, selectedCategory]);
 
   return (
-    <ScrollView contentContainerStyle={styles.screenContent}>
+    <View style={styles.homeScreenRoot}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.screenContent,
+          cart.length > 0 ? styles.screenContentWithFloatingCart : undefined,
+        ]}
+      >
       <View style={styles.homeHeader}>
         <Pressable
           style={styles.homeAddressTrigger}
@@ -218,6 +224,7 @@ export function HomeScreen({
         ))}
       </View>
 
+      </ScrollView>
       {cart.length > 0 ? (
         <Pressable style={styles.floatingCart} onPress={onCart}>
           <Feather name="shopping-bag" size={20} color={palette.onAccent} />
@@ -225,7 +232,7 @@ export function HomeScreen({
           <Feather name="arrow-right" size={18} color={palette.onAccent} />
         </Pressable>
       ) : null}
-    </ScrollView>
+    </View>
   );
 }
 

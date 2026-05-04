@@ -7,6 +7,7 @@ import type {
   ProductSummary,
 } from "@mercado/shared/domain/models";
 import Constants from "expo-constants";
+import { Linking } from "react-native";
 import { supabase } from "./supabase";
 
 export type AuthForm = {
@@ -24,6 +25,8 @@ export type Profile = {
   id: string;
   fullName: string;
   role: AppRole;
+  isActive?: boolean;
+  isApproved?: boolean;
   email?: string;
   contactEmail?: string;
   cpf?: string;
@@ -159,6 +162,18 @@ function firstRelation<T>(relation: T | T[] | null | undefined): T | null {
   return Array.isArray(relation) ? relation[0] ?? null : relation;
 }
 
+function getAuthRedirectUrl(path: string) {
+  const normalizedPath = path.replace(/^\/+/, "");
+  const baseUrl = Constants.linkingUri?.replace(/\/+$/, "");
+
+  if (baseUrl) {
+    const redirectBase = baseUrl.includes("/--") ? baseUrl : `${baseUrl}/--`;
+    return `${redirectBase}/${normalizedPath}`;
+  }
+
+  return `mercado://${normalizedPath}`;
+}
+
 function mapAddressRow(address: AddressRow): AddressRecord {
   return {
     id: address.id,
@@ -198,7 +213,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data, error } = await client
     .from("profiles")
-    .select("id, full_name, role, contact_email, cpf, phone, avatar_url, rating, vehicle_type, vehicle_plate, driver_license, created_at")
+    .select("id, full_name, role, is_active, is_approved, contact_email, cpf, phone, avatar_url, rating, vehicle_type, vehicle_plate, driver_license, created_at")
     .eq("id", user.id)
     .single();
 
@@ -210,6 +225,8 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     id: data.id,
     fullName: data.full_name,
     role: data.role,
+    isActive: data.is_active ?? undefined,
+    isApproved: data.is_approved ?? undefined,
     email: user.email,
     contactEmail: data.contact_email ?? user.email ?? undefined,
     cpf: data.cpf ?? undefined,
@@ -230,6 +247,34 @@ export async function signInWithPassword({ email, password }: AuthForm) {
   if (error) {
     throw error;
   }
+}
+
+export async function signInWithGoogle() {
+  const client = getClient();
+  const redirectTo = getAuthRedirectUrl("oauth-callback");
+  const { data, error } = await client.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.url) {
+    throw new Error("Nao foi possivel iniciar o login com Google.");
+  }
+
+  const canOpen = await Linking.canOpenURL(data.url);
+
+  if (!canOpen) {
+    throw new Error("Nao foi possivel abrir o fluxo de login do Google.");
+  }
+
+  await Linking.openURL(data.url);
 }
 
 export async function signUpAccount({
@@ -278,10 +323,7 @@ export async function signOut() {
 
 export async function requestPasswordReset(email: string) {
   const client = getClient();
-  const baseUrl = Constants.linkingUri?.replace(/\/+$/, "");
-  const redirectTo = baseUrl
-    ? `${baseUrl.includes("/--") ? baseUrl : `${baseUrl}/--`}/reset-password`
-    : "mercado://reset-password";
+  const redirectTo = getAuthRedirectUrl("reset-password");
   const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
     redirectTo,
   });
@@ -317,6 +359,49 @@ export async function consumePasswordRecoveryLink(url: string) {
   }
 
   if (type !== "recovery" || !accessToken || !refreshToken) {
+    return false;
+  }
+
+  const { error } = await client.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return true;
+}
+
+export async function consumeOAuthCallbackLink(url: string) {
+  const client = getClient();
+  const params = extractAuthParams(url);
+  const type = params.get("type");
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  const authCode = params.get("code");
+  const errorDescription = params.get("error_description");
+
+  if (errorDescription) {
+    throw new Error(decodeURIComponent(errorDescription));
+  }
+
+  if (type === "recovery") {
+    return false;
+  }
+
+  if (authCode) {
+    const { error } = await client.auth.exchangeCodeForSession(authCode);
+
+    if (error) {
+      throw error;
+    }
+
+    return true;
+  }
+
+  if (!accessToken || !refreshToken) {
     return false;
   }
 

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { consumePasswordRecoveryLink, subscribeToAuthChanges } from "../services/market-api";
+import {
+  consumeOAuthCallbackLink,
+  consumePasswordRecoveryLink,
+  subscribeToAuthChanges,
+} from "../services/market-api";
 import { useOrderRealtime } from "../services/use-order-realtime";
 import { useAppStore } from "../state/app-store";
 import { BottomTabs } from "./BottomTabs";
@@ -12,12 +16,14 @@ import { AdminNavigator } from "../features/admin/screens";
 import { AuthScreen, LandingScreen, ResetPasswordScreen } from "../features/auth/screens";
 import { HomeScreen, ProductDetailScreen } from "../features/catalog/screens";
 import { CartScreen } from "../features/cart/screens";
+import { CourierAccountStateScreen, CourierNavigator } from "../features/courier/screens";
 import { CheckoutScreen, OrdersScreen, TrackScreen } from "../features/orders/screens";
 import { AddressesScreen, ProfileScreen } from "../features/profile/screens";
 
 export function AppNavigator() {
   const isAuthenticated = useAppStore((state) => state.isAuthenticated);
   const activeRole = useAppStore((state) => state.activeRole);
+  const profile = useAppStore((state) => state.profile);
   const bootstrap = useAppStore((state) => state.bootstrap);
   const refreshAddresses = useAppStore((state) => state.refreshAddresses);
   const refreshCatalog = useAppStore((state) => state.refreshCatalog);
@@ -42,19 +48,26 @@ export function AppNavigator() {
   useEffect(() => {
     let isMounted = true;
 
-    const handleRecoveryUrl = async (url: string | null) => {
+    const handleAuthUrl = async (url: string | null) => {
       if (!url) {
         return;
       }
 
-      try {
-        const isRecoveryLink = await consumePasswordRecoveryLink(url);
+      const isRecoveryLink = await consumePasswordRecoveryLink(url);
 
-        if (isMounted && isRecoveryLink) {
-          setPublicScreen("reset-password");
-        }
+      if (isMounted && isRecoveryLink) {
+        setPublicScreen("reset-password");
+        return;
+      }
+
+      await consumeOAuthCallbackLink(url);
+    };
+
+    const handleRecoveryUrl = async (url: string | null) => {
+      try {
+        await handleAuthUrl(url);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Nao foi possivel abrir o link de recuperacao.";
+        const message = error instanceof Error ? error.message : "Nao foi possivel concluir a autenticacao.";
         useAppStore.setState({ errorMessage: message });
       }
     };
@@ -113,6 +126,31 @@ export function AppNavigator() {
       <SafeAreaView style={styles.appRoot} edges={["top", "left", "right"]}>
         <FeedbackBar />
         <AdminNavigator />
+      </SafeAreaView>
+    );
+  }
+
+  if (activeRole === "COURIER") {
+    return (
+      <SafeAreaView style={styles.appRoot} edges={["top", "left", "right"]}>
+        <FeedbackBar />
+        {profile?.isApproved === false ? (
+          <CourierAccountStateScreen
+            title="Conta em analise"
+            description="Seu cadastro de entregador foi recebido e esta aguardando aprovacao do administrador."
+            actionLabel="Atualizar status"
+            onAction={() => void bootstrap()}
+          />
+        ) : profile?.isActive === false ? (
+          <CourierAccountStateScreen
+            title="Conta indisponivel"
+            description="Seu acesso de entregador esta temporariamente inativo. Fale com um administrador para reativar a conta."
+            actionLabel="Atualizar status"
+            onAction={() => void bootstrap()}
+          />
+        ) : (
+          <CourierNavigator />
+        )}
       </SafeAreaView>
     );
   }

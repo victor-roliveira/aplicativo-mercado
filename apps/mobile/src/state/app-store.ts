@@ -14,6 +14,7 @@ import {
   markAddressAsLastUsed as markRemoteAddressAsLastUsed,
   removeCartItem as removeRemoteCartItem,
   requestPasswordReset as requestRemotePasswordReset,
+  signInWithGoogle as signInWithGoogleRemote,
   signInWithPassword,
   signOut as signOutRemote,
   signUpAccount,
@@ -45,6 +46,7 @@ type AppState = {
   refreshCart: () => Promise<void>;
   refreshOrders: () => Promise<void>;
   signIn: (form: AuthForm) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signUp: (form: AuthForm) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string, confirmPassword: string) => Promise<void>;
@@ -318,6 +320,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isLoading: false, errorMessage: getErrorMessage(error) });
     }
   },
+  signInWithGoogle: async () => {
+    set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
+
+    try {
+      await signInWithGoogleRemote();
+      set({ isLoading: false });
+    } catch (error) {
+      set({ isLoading: false, errorMessage: getErrorMessage(error) });
+    }
+  },
   signUp: async (form) => {
     set({ isLoading: true, errorMessage: undefined, statusMessage: undefined });
 
@@ -365,7 +377,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().bootstrap();
       set({
         statusMessage:
-          "Conta criada e login realizado com sucesso.",
+          accountRole === "COURIER"
+            ? "Conta criada. Aguarde a aprovacao do administrador."
+            : "Conta criada e login realizado com sucesso.",
       });
     } catch (error) {
       set({ isLoading: false, errorMessage: getErrorMessage(error) });

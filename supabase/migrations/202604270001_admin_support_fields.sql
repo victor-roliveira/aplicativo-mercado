@@ -1,6 +1,7 @@
 alter table public.profiles
   add column if not exists contact_email text,
-  add column if not exists vehicle_type text;
+  add column if not exists vehicle_type text,
+  add column if not exists is_approved boolean not null default true;
 
 update public.profiles p
 set contact_email = u.email
@@ -70,7 +71,9 @@ begin
     vehicle_type,
     vehicle_plate,
     driver_license,
-    role
+    role,
+    is_active,
+    is_approved
   )
   values (
     new.id,
@@ -85,6 +88,16 @@ begin
       when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
         then 'COURIER'::public.app_role
       else 'CUSTOMER'::public.app_role
+    end,
+    case
+      when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
+        then false
+      else true
+    end,
+    case
+      when upper(coalesce(new.raw_user_meta_data ->> 'requested_role', 'CUSTOMER')) = 'COURIER'
+        then false
+      else true
     end
   )
   on conflict (id) do nothing;

@@ -9,6 +9,9 @@ export type ProfileEditorDraft = {
   phone: string;
   cpf: string;
   avatarUrl: string;
+  vehicleType?: string;
+  vehiclePlate?: string;
+  driverLicense?: string;
 };
 
 export type PasswordEditorDraft = {
@@ -20,6 +23,7 @@ export function ProfileEditorFields({
   draft,
   avatarPreviewUri,
   loading,
+  showCourierFields,
   onPickAvatar,
   onRemoveAvatar,
   onChange,
@@ -27,6 +31,7 @@ export function ProfileEditorFields({
   draft: ProfileEditorDraft;
   avatarPreviewUri?: string;
   loading?: boolean;
+  showCourierFields?: boolean;
   onPickAvatar: () => void;
   onRemoveAvatar: () => void;
   onChange: (draft: ProfileEditorDraft) => void;
@@ -98,8 +103,38 @@ export function ProfileEditorFields({
         keyboardType="number-pad"
         onChangeText={(value) => onChange({ ...draft, cpf: value })}
       />
+      {showCourierFields ? (
+        <>
+          <AppInput
+            label="Veiculo"
+            icon="truck"
+            value={draft.vehicleType ?? ""}
+            placeholder="Honda CG 160 Start"
+            autoCapitalize="words"
+            onChangeText={(value) => onChange({ ...draft, vehicleType: value })}
+          />
+          <AppInput
+            label="Placa"
+            icon="hash"
+            value={draft.vehiclePlate ?? ""}
+            placeholder="BRA-2E19"
+            autoCapitalize="characters"
+            onChangeText={(value) => onChange({ ...draft, vehiclePlate: value })}
+          />
+          <AppInput
+            label="CNH"
+            icon="file-text"
+            value={draft.driverLicense ?? ""}
+            placeholder="0123456789"
+            keyboardType="number-pad"
+            onChangeText={(value) => onChange({ ...draft, driverLicense: value })}
+          />
+        </>
+      ) : null}
       <Text style={styles.accountHelperText}>
-        Nome e telefone sao os dados principais do perfil. O telefone continua sendo usado no codigo de entrega.
+        {showCourierFields
+          ? "Nome e telefone seguem como base do perfil. O telefone tambem continua sendo usado no codigo de entrega."
+          : "Nome e telefone sao os dados principais do perfil. O telefone continua sendo usado no codigo de entrega."}
       </Text>
     </View>
   );

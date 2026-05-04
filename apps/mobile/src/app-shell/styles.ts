@@ -173,6 +173,13 @@ export const styles = StyleSheet.create({
   courierSignupContent: {
     height: 56,
   },
+  googleAuthButton: {
+    borderRadius: 13,
+    marginTop: 14,
+  },
+  googleAuthButtonContent: {
+    height: 56,
+  },
   demoRoles: {
     flexDirection: "row",
     gap: 10,
@@ -349,6 +356,12 @@ export const styles = StyleSheet.create({
     paddingBottom: 118,
     paddingHorizontal: 20,
     paddingTop: 18,
+  },
+  homeScreenRoot: {
+    flex: 1,
+  },
+  screenContentWithFloatingCart: {
+    paddingBottom: 214,
   },
   homeHeader: {
     alignItems: "center",
@@ -645,7 +658,7 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: palette.green,
     borderRadius: 18,
-    bottom: 92,
+    bottom: 96,
     flexDirection: "row",
     gap: 10,
     left: 20,
@@ -653,6 +666,7 @@ export const styles = StyleSheet.create({
     paddingVertical: 14,
     position: "absolute",
     right: 20,
+    zIndex: 8,
   },
   floatingCartText: {
     color: palette.onAccent,
@@ -730,6 +744,9 @@ export const styles = StyleSheet.create({
     gap: 18,
     marginTop: 28,
     padding: 20,
+  },
+  cartCheckoutAction: {
+    marginTop: 24,
   },
   summaryRow: {
     alignItems: "center",
