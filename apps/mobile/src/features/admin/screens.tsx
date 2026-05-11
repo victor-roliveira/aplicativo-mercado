@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -499,10 +499,12 @@ function AdminOrdersScreen() {
   const rejectOrder = useAdminStore((state) => state.rejectOrder);
   const assignOrder = useAdminStore((state) => state.assignOrder);
   const advanceOrder = useAdminStore((state) => state.advanceOrder);
+  const refreshOrders = useAdminStore((state) => state.refreshOrders);
   const isLoading = useAdminStore((state) => state.isLoading);
   const [filter, setFilter] = useState<OrderFilter>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [selectedCourierId, setSelectedCourierId] = useState<string>("");
+  const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
   const availableCouriers = useMemo(
     () => couriers.filter((courier) => courier.isApproved && courier.isActive),
     [couriers],
@@ -511,6 +513,23 @@ function AdminOrdersScreen() {
   const filteredOrders = useMemo(
     () => (filter === "ALL" ? orders : orders.filter((order) => order.status === filter)),
     [filter, orders],
+  );
+
+  const handleRefreshOrders = useCallback(
+    async (showSpinner = true) => {
+      if (showSpinner) {
+        setIsRefreshingOrders(true);
+      }
+
+      try {
+        await refreshOrders();
+      } finally {
+        if (showSpinner) {
+          setIsRefreshingOrders(false);
+        }
+      }
+    },
+    [refreshOrders],
   );
 
   useEffect(() => {
@@ -522,6 +541,35 @@ function AdminOrdersScreen() {
     setSelectedCourierId(selectedOrder.assignedCourierId ?? availableCouriers[0]?.id ?? "");
   }, [availableCouriers, selectedOrder]);
 
+  useEffect(() => {
+    if (!selectedOrder) {
+      return;
+    }
+
+    const nextSelectedOrder = orders.find((order) => order.rawOrderId === selectedOrder.rawOrderId) ?? null;
+
+    if (!nextSelectedOrder) {
+      setSelectedOrder(null);
+      return;
+    }
+
+    if (nextSelectedOrder !== selectedOrder) {
+      setSelectedOrder(nextSelectedOrder);
+    }
+  }, [orders, selectedOrder]);
+
+  useEffect(() => {
+    void handleRefreshOrders(false);
+
+    const interval = setInterval(() => {
+      if (!isLoading) {
+        void handleRefreshOrders(false);
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [handleRefreshOrders, isLoading]);
+
   return (
     <>
       <ScrollView contentContainerStyle={adminStyles.content}>
@@ -530,6 +578,20 @@ function AdminOrdersScreen() {
           title="Pedidos"
           subtitle="Acompanhe os pedidos"
         />
+
+        <View style={adminStyles.listToolbar}>
+          <Text style={adminStyles.listCount}>{filteredOrders.length} pedidos</Text>
+          <Pressable
+            style={adminStyles.secondaryPillAction}
+            onPress={() => void handleRefreshOrders()}
+            disabled={isRefreshingOrders || isLoading}
+          >
+            <Feather name="refresh-cw" size={18} color={palette.green} />
+            <Text style={adminStyles.secondaryPillActionText}>
+              {isRefreshingOrders ? "Atualizando..." : "Atualizar"}
+            </Text>
+          </Pressable>
+        </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={adminStyles.chipRow}>
           {Object.entries(orderFilterLabels).map(([key, label]) => {
@@ -549,7 +611,7 @@ function AdminOrdersScreen() {
         </ScrollView>
 
         <View style={adminStyles.listColumn}>
-          {filteredOrders.map((order) => (
+          {filteredOrders.length > 0 ? filteredOrders.map((order) => (
             <Pressable key={order.rawOrderId} style={adminStyles.orderCard} onPress={() => setSelectedOrder(order)}>
               <View style={adminStyles.orderHeaderRow}>
                 <View>
@@ -588,7 +650,15 @@ function AdminOrdersScreen() {
                 </View>
               ) : null}
             </Pressable>
-          ))}
+          )) : (
+            <View style={adminStyles.emptyListState}>
+              <AppSvgIcon Icon={svgIcons.AdminOrdersIcon} size={30} color={palette.green} />
+              <Text style={adminStyles.emptyListStateTitle}>Nenhum pedido neste filtro</Text>
+              <Text style={adminStyles.emptyListStateText}>
+                Use o botao de atualizar ou aguarde alguns segundos para sincronizar novos pedidos.
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -2356,10 +2426,45 @@ const adminStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
   },
+  secondaryPillAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#f0dddd",
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 18,
+  },
+  secondaryPillActionText: {
+    color: palette.green,
+    fontSize: 16,
+  },
   listColumn: {
     paddingHorizontal: 22,
     paddingTop: 18,
     gap: 18,
+  },
+  emptyListState: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#f0dddd",
+    paddingHorizontal: 24,
+    paddingVertical: 30,
+    gap: 10,
+  },
+  emptyListStateTitle: {
+    color: "#2d1b1c",
+    fontSize: 18,
+  },
+  emptyListStateText: {
+    color: "#7d6463",
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
   },
   courierCard: {
     backgroundColor: "#fff",
